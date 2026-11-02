@@ -1,0 +1,31 @@
+from pathlib import Path
+
+from .models import Extraction, group_comments
+
+SUPPORTED = {".docx", ".xlsx", ".pptx", ".pdf"}
+
+
+def extract_file(path) -> Extraction:
+    source = Path(path).resolve()
+    result = Extraction(source)
+    try:
+        suffix = source.suffix.lower()
+        if suffix not in SUPPORTED:
+            raise ValueError("支持 .docx、.xlsx、.pptx、.pdf；旧版 Office 文件请先另存为新格式。")
+        if suffix == ".pdf":
+            from .pdf import read_pdf
+            comments = read_pdf(source, result.warnings)
+        elif suffix == ".docx":
+            from .word import read_word
+            comments = read_word(source, result.warnings)
+        elif suffix == ".xlsx":
+            from .excel import read_excel
+            comments = read_excel(source, result.warnings)
+        else:
+            from .powerpoint import read_powerpoint
+            comments = read_powerpoint(source, result.warnings)
+        result.issues = group_comments(comments, result.warnings)
+        result.warnings = list(dict.fromkeys(result.warnings))
+    except Exception as exc:
+        result.error = f"{type(exc).__name__}：{exc}"
+    return result
