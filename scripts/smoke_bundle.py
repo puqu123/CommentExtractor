@@ -13,7 +13,7 @@ from commentextract import __version__
 from tests.samples import create_samples
 
 if __name__ == "__main__":
-    executable = Path(sys.argv[1] if len(sys.argv) > 1 else f"dist/v{__version__}/CommentExtract/CommentExtract.exe").resolve()
+    executable = Path(sys.argv[1] if len(sys.argv) > 1 else f"dist/v{__version__}/CommentExtractor/CommentExtractor.exe").resolve()
     with tempfile.TemporaryDirectory(prefix="commentextract-bundle-") as temporary:
         root = Path(temporary)
         inputs = root / "input"

@@ -1,6 +1,6 @@
 # Third-party notices
 
-CommentExtract is licensed under GNU AGPL v3.0 only. It uses the following libraries:
+CommentExtractor is licensed under GNU AGPL v3.0 only. It uses the following libraries:
 
 | Component | License family | Upstream |
 |---|---|---|
@@ -23,7 +23,7 @@ changing the dependency set before a public binary release.
 Copies of the LGPL v3, GPL v3, and Python 3.9.13 license are included in `licenses/`.
 The PyInstaller bootloader exception is included as `licenses/PyInstaller-COPYING.txt`.
 
-The source and build instructions for CommentExtract accompany the repository.
+The source and build instructions for CommentExtractor accompany the repository.
 Upstream source for exact dependency versions can be obtained from their project
 sites / PyPI. Installed versions are recorded in `requirements-lock.txt` for the
 initial Windows build. No proprietary PyMuPDF license is included or assumed.

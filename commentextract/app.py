@@ -4,22 +4,47 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QItemSelectionModel
-from PySide6.QtGui import QDesktopServices, QFont, QPixmap
+from PySide6.QtGui import QDesktopServices, QFont, QPixmap, QPainter, QColor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
     QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
-    QAbstractItemView, QStyledItemDelegate,
+    QAbstractItemView, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 
 from . import __version__
 from .extract import SUPPORTED, extract_file
 from .models import ACCEPTANCE, HEADERS
 from .merge import merge_results, suggest_group_name
+from .ui import build_ui, app_icon
 
 
 class AcceptanceDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        styled.text = ""
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, styled, painter, option.widget)
+        value = index.data() or ""
+        background, foreground = {
+            "": ("#F0F4F8", "#7D8FA2"), "是": ("#E2F5ED", "#127759"),
+            "否": ("#FCEDEA", "#B85447"), "部分接受": ("#FFF3D9", "#98701C"),
+            "重复": ("#EDEDF7", "#716B92"),
+        }.get(value, ("#F0F4F8", "#7D8FA2"))
+        box = option.rect.adjusted(8, 0, -8, 0)
+        box.setTop(option.rect.center().y() - 14)
+        box.setHeight(28)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(background))
+        painter.drawRoundedRect(box, 6, 6)
+        painter.setPen(QColor(foreground))
+        painter.drawText(box, Qt.AlignCenter, value or "待填写")
+        painter.restore()
+
     def createEditor(self, parent, option, index):
         editor = QComboBox(parent)
         editor.addItems(ACCEPTANCE)
@@ -64,10 +89,6 @@ class Worker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"评审意见提取 · CommentExtract {__version__}")
-        self.resize(1480, 880)
-        self.setMinimumSize(1060, 680)
-        self.setAcceptDrops(True)
         self.results = []
         self.worker = None
         self.output_paths = []
@@ -77,125 +98,7 @@ class MainWindow(QMainWindow):
         self.preview_cache = {}
         self.preview_data = None
         self.dirty = False
-        root = QWidget()
-        self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(22, 18, 22, 16)
-        layout.setSpacing(14)
-        titlebar = QHBoxLayout()
-        title = QLabel("评审意见提取")
-        title.setObjectName("title")
-        titlebar.addWidget(title)
-        subtitle = QLabel("Word · Excel · PDF · PowerPoint")
-        subtitle.setObjectName("subtitle")
-        titlebar.addWidget(subtitle)
-        titlebar.addStretch()
-        badge = QLabel("● 本地离线")
-        badge.setObjectName("badge")
-        titlebar.addWidget(badge)
-        layout.addLayout(titlebar)
-        hint = QLabel("可一次添加多种格式的文件，批量导出对应 Excel。提取内容只读，“是否接受”可选填。")
-        hint.setObjectName("subtitle")
-        layout.addWidget(hint)
-        toolbar = QHBoxLayout()
-        self.add_button = QPushButton("添加文件（可多选）")
-        self.folder_button = QPushButton("添加文件夹")
-        self.clear_button = QPushButton("清空列表")
-        self.merge_button = QPushButton("合并所选评审文件")
-        self.merge_button.setToolTip("在左侧按 Ctrl 或 Shift 选中同一文档的多个评审返回文件，再合并为一份 Excel。")
-        self.export_button = QPushButton("批量导出 Excel")
-        self.export_button.setObjectName("primary")
-        self.cancel_button = QPushButton("停止")
-        self.cancel_button.setEnabled(False)
-        self.shots = QCheckBox("导出 PDF 截图")
-        self.shots.setChecked(True)
-        for button in [self.add_button, self.folder_button, self.merge_button, self.clear_button]:
-            toolbar.addWidget(button)
-        toolbar.addStretch()
-        toolbar.addWidget(self.shots)
-        toolbar.addWidget(self.cancel_button)
-        toolbar.addWidget(self.export_button)
-        layout.addLayout(toolbar)
-        splitter = QSplitter()
-        layout.addWidget(splitter, 1)
-        files_panel = QWidget()
-        files_layout = QVBoxLayout(files_panel)
-        files_layout.setContentsMargins(0, 0, 10, 0)
-        files_layout.addWidget(QLabel("评审文件"))
-        self.file_list = QListWidget()
-        self.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.file_list.setWordWrap(True)
-        self.file_list.setSpacing(4)
-        files_layout.addWidget(self.file_list)
-        self.file_count = QLabel("尚未添加文件")
-        files_layout.addWidget(self.file_count)
-        splitter.addWidget(files_panel)
-        main_panel = QWidget()
-        main_layout = QVBoxLayout(main_panel)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("筛选当前文件的意见、评审人、回复或位置…")
-        main_layout.addWidget(self.search)
-        self.table = QTableWidget(0, len(HEADERS))
-        self.table.setHorizontalHeaderLabels(HEADERS)
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setWordWrap(True)
-        self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(82)
-        self.table.setItemDelegateForColumn(5, AcceptanceDelegate(self.table))
-        widths = [90, 155, 230, 100, 270, 100, 130, 280, 110]
-        for index, width in enumerate(widths):
-            self.table.setColumnWidth(index, width)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        main_layout.addWidget(self.table, 1)
-        self.message = QLabel("点击“添加文件”，或将文件拖入窗口。")
-        self.message.setWordWrap(True)
-        self.message.setObjectName("subtitle")
-        main_layout.addWidget(self.message)
-        splitter.addWidget(main_panel)
-        detail_panel = QWidget()
-        detail_layout = QVBoxLayout(detail_panel)
-        detail_layout.setContentsMargins(10, 0, 0, 0)
-        detail_bar = QHBoxLayout()
-        detail_bar.addWidget(QLabel("意见详情"))
-        detail_bar.addStretch()
-        detail_layout.addLayout(detail_bar)
-        self.detail = QTextEdit()
-        self.detail.setReadOnly(True)
-        self.detail.setPlaceholderText("选择一条意见查看原文、评审意见和已有回复。\n\n提取内容只读；仅“是否接受”可选填。")
-        detail_layout.addWidget(self.detail, 1)
-        self.preview_label = QLabel("PDF 上下文预览")
-        preview_bar = QHBoxLayout()
-        preview_bar.addWidget(self.preview_label)
-        preview_bar.addStretch()
-        self.zoom_button = QPushButton("查看大图")
-        self.zoom_button.setEnabled(False)
-        preview_bar.addWidget(self.zoom_button)
-        detail_layout.addLayout(preview_bar)
-        self.preview = QLabel("选择 PDF 意见后显示所在页面\n红框标出批注位置")
-        self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setObjectName("preview")
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.preview)
-        detail_layout.addWidget(scroll, 2)
-        splitter.addWidget(detail_panel)
-        splitter.setSizes([220, 850, 360])
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 1)
-        self.progress.setValue(0)
-        self.progress.setTextVisible(False)
-        self.progress.setMaximumHeight(5)
-        layout.addWidget(self.progress)
-        footer = QHBoxLayout()
-        self.status = QLabel("就绪 · 支持 .docx / .xlsx / .pdf / .pptx")
-        footer.addWidget(self.status, 1)
-        self.open_output_button = QPushButton("打开输出目录")
-        self.open_output_button.setEnabled(False)
-        footer.addWidget(self.open_output_button)
-        layout.addLayout(footer)
+        build_ui(self, AcceptanceDelegate)
         self.add_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
         self.clear_button.clicked.connect(self.clear_files)
@@ -203,41 +106,39 @@ class MainWindow(QMainWindow):
         self.export_button.clicked.connect(self.export)
         self.cancel_button.clicked.connect(self.cancel)
         self.file_list.currentRowChanged.connect(self.show_result)
+        self.file_list.itemSelectionChanged.connect(self.update_counts)
         self.table.itemSelectionChanged.connect(self.show_detail)
         self.table.itemChanged.connect(self.item_changed)
         self.search.textChanged.connect(self.filter_rows)
+        self.acceptance_filter.currentTextChanged.connect(self.filter_rows)
         self.zoom_button.clicked.connect(self.open_preview)
         self.open_output_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_output))))
-        self.setStyleSheet("""
-            QMainWindow { background: #f5f7fb; }
-            QWidget { font-family: 'Microsoft YaHei UI'; font-size: 12px; color: #243447; }
-            QLabel#title { font-size: 25px; font-weight: 700; color: #193652; }
-            QLabel#subtitle { color: #63758a; }
-            QLabel#badge { color: #147d64; background: #e2f3ed; padding: 7px 12px; border-radius: 12px; }
-            QPushButton { background: white; border: 1px solid #ccd7e4; border-radius: 6px; padding: 8px 12px; }
-            QPushButton:hover { background: #eaf2fa; }
-            QPushButton:disabled { color: #9aa8b6; background: #f2f4f7; }
-            QPushButton#primary { background: #216bb5; color: white; border-color: #216bb5; }
-            QPushButton#primary:disabled { background: #a8bdd5; border-color: #a8bdd5; }
-            QLineEdit, QTextEdit, QListWidget, QTableWidget, QScrollArea { background: white; border: 1px solid #dbe3ed; border-radius: 6px; }
-            QLineEdit { padding: 10px; }
-            QTableWidget { gridline-color: #e4eaf2; alternate-background-color: #f5f9fd; }
-            QHeaderView::section { background: #e8eff7; color: #193652; padding: 10px 6px; border: 0; border-right: 1px solid #dbe3ed; font-weight: 600; }
-            QListWidget::item { padding: 12px 8px; border-radius: 5px; }
-            QListWidget::item:selected { background: #dcebf9; color: #163e66; }
-            QLabel#preview { color: #6b7d90; background: #edf1f6; padding: 8px; }
-            QProgressBar { border: none; background: #e2e9f1; }
-            QProgressBar::chunk { background: #2c83c6; }
-        """)
+        self.update_counts()
 
     def busy(self):
-        return self.worker is not None and self.worker.isRunning()
+        return self.worker is not None
+
+    def update_counts(self):
+        issues = [issue for result in self.results if not result.error for issue in result.issues]
+        duplicates = sum(issue.acceptance == "重复" for issue in issues)
+        exports = sum(not result.error for result in self.results)
+        values = {"files": exports, "opinions": len(issues),
+                  "replies": sum(len(issue.replies) for issue in issues), "effective": len(issues) - duplicates}
+        for key, value in values.items():
+            self.stat_values[key].setText(str(value))
+        self.stat_notes["effective"].setText(f"已排除 {duplicates} 条重复意见")
+        self.file_count.setText(str(len(self.results)))
+        self.export_button.setText(f"导出 {exports} 份 Excel" if exports else "批量导出 Excel")
+        self.export_button.setEnabled(exports > 0 and not self.busy())
+        self.merge_button.setEnabled(len(self.file_list.selectedIndexes()) >= 2 and not self.busy())
 
     def set_busy(self, busy):
         for widget in [self.add_button, self.folder_button, self.clear_button, self.merge_button,
                        self.export_button, self.table, self.shots]:
             widget.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
+        self.cancel_button.setVisible(busy)
+        self.update_counts()
 
     def choose_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "选择评审文件", "", "评审文件 (*.docx *.xlsx *.pdf *.pptx)")
@@ -280,7 +181,7 @@ class MainWindow(QMainWindow):
     def add_result(self, result):
         self.results.append(result)
         self.append_file_item(result)
-        self.file_count.setText(f"{len(self.results)} 个文件")
+        self.update_counts()
         self.file_list.setCurrentRow(len(self.results) - 1, QItemSelectionModel.ClearAndSelect)
 
     def append_file_item(self, result):
@@ -345,6 +246,8 @@ class MainWindow(QMainWindow):
         self.zoom_button.setEnabled(False)
         self.preview.setText("选择 PDF 意见查看上下文")
         result = self.current_result()
+        self.file_title.setText((result.source.stem if result.sources else result.source.name) if result else "等待添加文件")
+        self.file_title.setToolTip(str(result.source) if result else "")
         if result:
             self.table.setRowCount(len(result.issues))
             for row, issue in enumerate(result.issues):
@@ -364,9 +267,12 @@ class MainWindow(QMainWindow):
 
     def filter_rows(self):
         query = self.search.text().strip().casefold()
+        acceptance = self.acceptance_filter.currentText()
         for row in range(self.table.rowCount()):
             content = " ".join(self.table.item(row, col).text() for col in range(self.table.columnCount()))
-            self.table.setRowHidden(row, query not in content.casefold())
+            value = self.table.item(row, 5).text()
+            matches = acceptance == "全部接受情况" or value == ("" if acceptance == "未填写" else acceptance)
+            self.table.setRowHidden(row, query not in content.casefold() or not matches)
 
     def item_changed(self, item):
         if self.loading:
@@ -392,6 +298,8 @@ class MainWindow(QMainWindow):
             issue.acceptance = value
         self.dirty = True
         item.setToolTip(value)
+        self.update_counts()
+        self.filter_rows()
         self.show_detail()
 
     def show_detail(self):
@@ -472,7 +380,7 @@ class MainWindow(QMainWindow):
         self.results = []
         self.preview_cache.clear()
         self.file_list.clear()
-        self.file_count.setText("尚未添加文件")
+        self.update_counts()
         self.message.setText("点击“添加文件”，或将文件拖入窗口。")
         self.dirty = False
 
@@ -499,7 +407,7 @@ class MainWindow(QMainWindow):
         for result in self.results:
             self.append_file_item(result)
         self.file_list.setCurrentRow(len(self.results) - 1, QItemSelectionModel.ClearAndSelect)
-        self.file_count.setText(f"{len(self.results)} 个文件／评审组")
+        self.update_counts()
         self.status.setText(f"已合并 {len(merged.sources)} 份评审。相同意见请人工将后出现的行标记为“重复”。")
 
     def dragEnterEvent(self, event):
@@ -521,8 +429,12 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CommentExtractor.Desktop")
     application = QApplication(sys.argv)
-    application.setApplicationName("CommentExtract")
+    application.setApplicationName("CommentExtractor")
+    application.setWindowIcon(app_icon())
     application.setStyle("Fusion")
     application.setFont(QFont("Microsoft YaHei UI", 10))
     window = MainWindow()

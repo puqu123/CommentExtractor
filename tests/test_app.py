@@ -30,11 +30,13 @@ def wait_for_worker(window):
 def test_only_acceptance_is_editable(application, tmp_path):
     path = make_word(tmp_path / "review.docx")
     window = MainWindow()
+    assert not window.windowIcon().isNull()
     window.add_files([path])
     wait_for_worker(window)
     assert len(window.results) == 1
     assert window.table.rowCount() == 1
     assert window.table.columnCount() == 9
+    assert window.stat_values["opinions"].text() == "1"
     issue = window.results[0].issues[0]
     original = issue.values()
     for column in range(9):
@@ -49,6 +51,11 @@ def test_only_acceptance_is_editable(application, tmp_path):
     window.table.item(0, 5).setText("非法选项")
     assert window.table.item(0, 5).text() == "是"
     assert window.dirty
+    window.acceptance_filter.setCurrentText("否")
+    assert window.table.isRowHidden(0)
+    window.acceptance_filter.setCurrentText("是")
+    assert not window.table.isRowHidden(0)
+    window.acceptance_filter.setCurrentText("全部接受情况")
     buttons = [button.text() for button in window.findChildren(QPushButton)]
     assert "编辑回复" not in buttons
     assert "保存项目" not in buttons

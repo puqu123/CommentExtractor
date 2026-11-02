@@ -1,4 +1,4 @@
-# CommentExtract · 评审意见提取
+# CommentExtractor · 评审意见提取
 
 Windows 本地离线桌面工具，将 Word、Excel、PDF、PowerPoint 中的标准批注整理到 Excel。
 无需连接云服务，源文件只读。默认每个源文件独立导出，例如 `设计说明.docx` → `设计说明_评审意见.xlsx`。
@@ -6,10 +6,11 @@ Windows 本地离线桌面工具，将 Word、Excel、PDF、PowerPoint 中的标
 
 ## 下载使用
 
-无需安装 Python 或 Office。到 [Releases](https://github.com/puqu123/CommentExtract/releases) 下载 Windows x64 免安装 ZIP，
-完整解压后双击 `CommentExtract.exe`。请保留同目录的 `_internal` 文件夹。
+无需安装 Python 或 Office。到 [Releases](https://github.com/puqu123/CommentExtractor/releases) 下载 Windows x64 免安装 ZIP，
+完整解压后双击 `CommentExtractor.exe`。请保留同目录的 `_internal` 文件夹。
+v0.2.1 旧包内的程序名称仍为 `CommentExtract.exe`；从 v0.2.2 起统一使用 CommentExtractor。
 
-当前版本为 **v0.2.1 预发布版**。构造样例和自动检查已通过，尚未完成真实评审文件的兼容性验证；格式支持范围见下表。
+当前版本为 **v0.2.2 预发布版**，包含新的应用图标和主界面。构造样例和自动检查已通过，尚未完成真实评审文件的兼容性验证；格式支持范围见下表。
 
 ## 开发运行
 
@@ -111,9 +112,25 @@ PDF 预览可通过“查看大图”打开完整分辨率截图。
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
 
-生成 `dist/v<版本号>/CommentExtract/CommentExtract.exe` 和 ZIP 发布包。不同版本使用独立目录，避免覆盖正在运行的旧版。
+生成 `dist/v<版本号>/CommentExtractor/CommentExtractor.exe` 和 ZIP 发布包。不同版本使用独立目录，避免覆盖正在运行的旧版。
 使用时解压整个 ZIP，再运行 EXE；不能只拷贝 EXE。
 程序不自更新、不上传文档。企业电脑是否允许运行取决于终端管理策略。
+
+## 后续版本发布
+
+修改 `commentextract/__init__.py` 和 `pyproject.toml` 中的版本号，更新 `CHANGELOG.md` 并提交代码后，可以继续让 Codex 发布。
+已有 GitHub CLI 凭据有效时无需重复设备授权。也可以自己运行脚本：
+
+```powershell
+# 只查看将要发布的仓库和版本，不上传
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish_release.ps1
+# 测试、构建和验证后发布为预发布版
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish_release.ps1 -Publish
+```
+
+脚本会推送 main 和版本标签，创建带 Windows ZIP、源码 ZIP、SHA256 校验文件的 Release，不覆盖已有版本。
+运行前应已安装开发依赖、配置 origin 并登录官方 GitHub CLI；默认保持预发布标记，明确使用 `-Stable` 才按正式版发布。
+图标源文件位于 `commentextract/assets/app.svg`，修改后运行 `python scripts/build_icon.py` 可重新生成 PNG 和多尺寸 ICO。
 
 ## 开源许可
 
