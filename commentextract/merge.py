@@ -20,7 +20,7 @@ def merge_results(results, name):
     name = name.strip().rstrip(". ")
     if not name or re.search(r'[<>:"/\\|?*\x00-\x1f]', name):
         raise ValueError("请填写有效的文档名称，不要包含路径或文件名特殊字符。")
-    if Path(name).suffix.lower() in {".docx", ".xlsx", ".pdf", ".pptx"}:
+    if Path(name).suffix.lower() in {".docx", ".xlsx", ".pptx"}:
         name = Path(name).stem
     sources = list(dict.fromkeys(source for result in results
                                  for source in (result.sources or [result.source])))

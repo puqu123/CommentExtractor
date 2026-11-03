@@ -14,6 +14,9 @@ from tests.samples import create_samples
 
 if __name__ == "__main__":
     executable = Path(sys.argv[1] if len(sys.argv) > 1 else f"dist/v{__version__}/CommentExtractor/CommentExtractor.exe").resolve()
+    internal = executable.parent / "_internal"
+    forbidden = [p for p in internal.rglob("*") if p.name.lower().startswith(("pymupdf", "fitz", "mupdf"))]
+    assert not forbidden, forbidden
     with tempfile.TemporaryDirectory(prefix="commentextract-bundle-") as temporary:
         root = Path(temporary)
         inputs = root / "input"
@@ -30,14 +33,14 @@ if __name__ == "__main__":
             workbook = load_workbook(path)
             assert workbook.sheetnames == ["评审汇总", "提取报告"]
             sheet = workbook["评审汇总"]
-            assert sheet.max_column == 9
+            assert sheet.max_column == 10
             issues += sheet.max_row - 1
             for row in sheet.iter_rows(min_row=2):
-                assert row[5].value in (None, "")
-                if row[8].hyperlink:
-                    assert (path.parent / unquote(row[8].hyperlink.target)).is_file()
+                assert row[6].value in (None, "")
+                if row[9].hyperlink:
+                    assert (path.parent / unquote(row[9].hyperlink.target)).is_file()
             workbook.close()
-        assert issues == 7, issues
+        assert issues == 6, issues
         environment["QT_QPA_PLATFORM"] = "offscreen"
         process = subprocess.Popen([str(executable)], env=environment, cwd=temporary)
         try:
@@ -46,4 +49,4 @@ if __name__ == "__main__":
         finally:
             process.terminate()
             process.wait(timeout=15)
-    print("Bundle smoke test passed: 6 workbooks, 7 issues, PDF assets, GUI startup.")
+    print("Bundle smoke test passed: 6 Office workbooks, 6 issues, GUI startup; no PDF runtime.")

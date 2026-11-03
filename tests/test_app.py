@@ -5,7 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 
 from commentextract.app import MainWindow
@@ -35,21 +35,21 @@ def test_only_acceptance_is_editable(application, tmp_path):
     wait_for_worker(window)
     assert len(window.results) == 1
     assert window.table.rowCount() == 1
-    assert window.table.columnCount() == 9
+    assert window.table.columnCount() == 10
     assert window.stat_values["opinions"].text() == "1"
     issue = window.results[0].issues[0]
     original = issue.values()
-    for column in range(9):
+    for column in range(10):
         item = window.table.item(0, column)
-        assert bool(item.flags() & Qt.ItemIsEditable) == (column == 5)
-        if column != 5:
+        assert bool(item.flags() & Qt.ItemIsEditable) == (column == 6)
+        if column != 6:
             item.setText("不能修改")
             assert item.text() == str(original[column])
     assert issue.values() == original
-    window.table.item(0, 5).setText("是")
+    window.table.item(0, 6).setText("是")
     assert window.results[0].issues[0].acceptance == "是"
-    window.table.item(0, 5).setText("非法选项")
-    assert window.table.item(0, 5).text() == "是"
+    window.table.item(0, 6).setText("非法选项")
+    assert window.table.item(0, 6).text() == "是"
     assert window.dirty
     window.acceptance_filter.setCurrentText("否")
     assert window.table.isRowHidden(0)
@@ -76,14 +76,12 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
     create_samples(inputs)
     files = sorted(inputs.iterdir())
     originals = {path: path.read_bytes() for path in files}
-    selected_filters = []
 
     def choose(*args):
-        selected_filters.append(args[-1])
-        return [str(path) for path in files], ""
+        return [str(path) for path in files]
 
-    monkeypatch.setattr(QFileDialog, "getOpenFileNames", choose)
-    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(output))
+    monkeypatch.setattr("commentextract.app.choose_files", choose)
+    monkeypatch.setattr("commentextract.app.choose_directory", lambda *args: str(output))
     monkeypatch.setattr(QMessageBox, "information", lambda *args: QMessageBox.Ok)
     errors = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: errors.append(args[-1]))
@@ -93,10 +91,9 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
     assert len(window.results) == 6
     assert len(window.file_list.selectedIndexes()) == 1
     assert all(not result.error for result in window.results)
-    assert all(ext in selected_filters[0] for ext in ("*.docx", "*.xlsx", "*.pdf", "*.pptx"))
     assert not window.dirty  # extraction alone does not trigger a discard prompt
     window.file_list.setCurrentRow(0)
-    window.table.item(0, 5).setText("部分接受")
+    window.table.item(0, 6).setText("部分接受")
     window.export()
     wait_for_worker(window)
     assert not errors
@@ -107,8 +104,8 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
         assert path.is_file()
         workbook = load_workbook(path)
         sheet = workbook["评审汇总"]
-        assert sheet.max_column == 9
-        assert sheet["F2"].value == ("部分接受" if source == files[0] else None)
+        assert sheet.max_column == 10
+        assert sheet["G2"].value == ("部分接受" if source == files[0] else None)
         workbook.close()
         assert source.read_bytes() == originals[source]
     window.clear_files()
@@ -120,9 +117,12 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
 def test_folder_import_accepts_all_supported_formats(application, tmp_path, monkeypatch):
     create_samples(tmp_path)
     (tmp_path / "~$temporary.docx").write_text("skip")
-    (tmp_path / "old_评审意见.xlsx").write_text("skip")
+    from commentextract.extract import extract_file
+    from commentextract.export import export_result
+    export_result(extract_file(tmp_path / "01_Word评审.docx"), tmp_path)
     (tmp_path / "instructions.txt").write_text("skip")
-    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path))
+    monkeypatch.setattr("commentextract.app.choose_directory", lambda *args: str(tmp_path))
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.Ok)
     window = MainWindow()
     window.choose_folder()
     wait_for_worker(window)

@@ -129,31 +129,12 @@ def make_powerpoint(path, modern=False):
     return path
 
 
-def make_pdf(path, rotated=False):
-    import fitz
-    with fitz.open() as document:
-        page = document.new_page()
-        page.insert_text((72, 90), "Response time must be below two seconds.")
-        area = page.search_for("two seconds")[0]
-        highlight = page.add_highlight_annot(area)
-        highlight.set_info(title="Reviewer A", content="Please clarify the measurement conditions.")
-        root = highlight.xref
-        reply = page.add_text_annot((90, 130), "We will add the test environment.")
-        reply.set_info(title="Responder B")
-        reply.set_irt_xref(root)
-        page.add_text_annot((300, 220), "Floating note: check the entire figure.").set_info(title="Reviewer C")
-        if rotated:
-            page.set_rotation(90)
-        document.save(path)
-    return path
-
-
 def create_samples(directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     make_word(directory / "01_Word评审.docx")
     make_excel(directory / "02_Excel便笺.xlsx")
     make_excel(directory / "03_Excel评论.xlsx", threaded=True)
-    make_pdf(directory / "04_PDF评审.pdf")
+    make_word(directory / "04_Word第二位评审.docx")
     make_powerpoint(directory / "05_PPT传统批注.pptx")
     make_powerpoint(directory / "06_PPT现代批注.pptx", modern=True)

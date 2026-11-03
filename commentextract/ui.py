@@ -4,13 +4,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPainter
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QProgressBar, QPushButton, QScrollArea,
+    QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QListWidget, QProgressBar, QPushButton,
     QSplitter, QTableWidget, QTextEdit, QVBoxLayout, QWidget, QSizePolicy,
 )
 
 from . import __version__
-from .models import HEADERS
+from .models import HEADERS, ACCEPTANCE_COLUMN
 
 ICON_PATH = Path(__file__).resolve().parent / "assets/app.ico"
 
@@ -85,7 +85,7 @@ def build_ui(window, acceptance_delegate):
     add_actions = QHBoxLayout()
     add_actions.setSpacing(8)
     window.add_button = QPushButton("＋ 添加文件")
-    window.add_button.setToolTip("在同一文件夹按 Ctrl / Shift 多选 Word、Excel、PDF、PPT 文件。")
+    window.add_button.setToolTip("在同一文件夹按 Ctrl / Shift 多选 Word、Excel、PPT 文件。")
     window.folder_button = QPushButton("文件夹")
     window.folder_button.setToolTip("导入整个文件夹及子目录中的受支持文件。")
     add_actions.addWidget(window.add_button, 3)
@@ -178,7 +178,7 @@ def build_ui(window, acceptance_delegate):
     table_layout.addLayout(table_heading)
     filters = QHBoxLayout()
     window.search = QLineEdit()
-    window.search.setPlaceholderText("搜索意见、原文、评审人或回复…")
+    window.search.setPlaceholderText("搜索文件名、意见、原文、评审人或回复…")
     window.search.setClearButtonEnabled(True)
     filters.addWidget(window.search, 1)
     window.acceptance_filter = QComboBox()
@@ -195,12 +195,13 @@ def build_ui(window, acceptance_delegate):
     window.table.setFrameShape(QFrame.NoFrame)
     window.table.verticalHeader().hide()
     window.table.verticalHeader().setDefaultSectionSize(72)
-    window.table.setItemDelegateForColumn(5, acceptance_delegate(window.table))
-    for index, width in enumerate([86, 130, 205, 95, 255, 106, 105, 240, 110]):
+    window.table.setItemDelegateForColumn(ACCEPTANCE_COLUMN, acceptance_delegate(window.table))
+    for index, width in enumerate([86, 200, 160, 205, 95, 255, 106, 105, 240, 110]):
         window.table.setColumnWidth(index, width)
+    window.table.setColumnHidden(9, True)  # Reserved export column; Office screenshots are not produced.
     window.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     table_layout.addWidget(window.table, 1)
-    window.message = QLabel("支持拖入文件或文件夹，可混合选择 Word / Excel / PDF / PPT。")
+    window.message = QLabel("支持拖入文件或文件夹，可混合选择 Word / Excel / PPT。")
     window.message.setWordWrap(True)
     window.message.setObjectName("tableHint")
     table_layout.addWidget(window.message)
@@ -220,29 +221,6 @@ def build_ui(window, acceptance_delegate):
     window.detail.setReadOnly(True)
     window.detail.setPlaceholderText("选择一条意见，在这里查看完整原文、评审意见和回复。\n\n只需在表格中填写“是否接受”，也可以留空直接导出。")
     details_splitter.addWidget(window.detail)
-    preview_panel = QWidget()
-    preview_layout = QVBoxLayout(preview_panel)
-    preview_layout.setContentsMargins(14, 0, 0, 0)
-    preview_layout.setSpacing(6)
-    preview_bar = QHBoxLayout()
-    window.preview_label = QLabel("PDF 上下文")
-    window.preview_label.setObjectName("muted")
-    preview_bar.addWidget(window.preview_label)
-    preview_bar.addStretch()
-    window.zoom_button = QPushButton("查看大图")
-    window.zoom_button.setObjectName("smallButton")
-    window.zoom_button.setEnabled(False)
-    preview_bar.addWidget(window.zoom_button)
-    preview_layout.addLayout(preview_bar)
-    window.preview = QLabel("PDF 批注可查看所在页面\n红框标出批注位置")
-    window.preview.setAlignment(Qt.AlignCenter)
-    window.preview.setObjectName("preview")
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setWidget(window.preview)
-    preview_layout.addWidget(scroll, 1)
-    details_splitter.addWidget(preview_panel)
-    details_splitter.setSizes([720, 330])
     details.addWidget(details_splitter, 1)
     work_splitter.addWidget(detail_card)
     work_splitter.setSizes([440, 225])
@@ -256,9 +234,9 @@ def build_ui(window, acceptance_delegate):
     window.open_output_button = QPushButton("打开输出目录")
     window.open_output_button.setEnabled(False)
     footer.addWidget(window.open_output_button)
-    window.shots = QCheckBox("附 PDF 截图")
-    window.shots.setChecked(True)
-    footer.addWidget(window.shots)
+    window.report_button = QPushButton("处理记录")
+    window.report_button.setEnabled(False)
+    footer.addWidget(window.report_button)
     window.cancel_button = QPushButton("停止处理")
     window.cancel_button.setVisible(False)
     footer.addWidget(window.cancel_button)
@@ -318,7 +296,6 @@ def build_ui(window, acceptance_delegate):
         #tableHint { color: #7A8FA2; font-size: 11px; }
         #detailText { background: #FAFCFE; border: 1px solid #E8EEF3; border-radius: 5px; padding: 8px; }
         QScrollArea { background: #F2F6FA; border: 1px solid #E8EEF3; border-radius: 5px; }
-        #preview { color: #8295A6; background: #F2F6FA; padding: 7px; }
         QProgressBar { border: none; background: #E4ECEF; }
         QProgressBar::chunk { background: #26A88C; }
         QSplitter::handle { background: transparent; }

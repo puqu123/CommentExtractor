@@ -21,10 +21,10 @@ $bundleDir = Join-Path $distRoot 'CommentExtractor'
 & $taskPython -m PyInstaller --noconfirm --clean --windowed --onedir --name CommentExtractor `
     --distpath $distRoot `
     --icon 'commentextract\assets\app.ico' --add-data 'commentextract/assets;commentextract/assets' `
-    --collect-all pymupdf `
-    --copy-metadata PyMuPDF --copy-metadata openpyxl --copy-metadata Pillow `
+    --exclude-module pymupdf --exclude-module fitz --exclude-module PIL --exclude-module lxml `
+    --copy-metadata openpyxl `
     --copy-metadata PySide6 --copy-metadata PySide6_Essentials --copy-metadata PySide6_Addons `
-    --copy-metadata shiboken6 --copy-metadata defusedxml --copy-metadata et-xmlfile --copy-metadata lxml `
+    --copy-metadata shiboken6 --copy-metadata defusedxml --copy-metadata et-xmlfile `
     --add-data 'LICENSE;.' --add-data 'THIRD_PARTY_NOTICES.md;.' run_app.py
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 Copy-Item -LiteralPath README.md,LICENSE,THIRD_PARTY_NOTICES.md,CHANGELOG.md -Destination $bundleDir

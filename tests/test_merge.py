@@ -11,7 +11,7 @@ from commentextract.app import MainWindow
 from commentextract.extract import extract_file
 from commentextract.export import export_result
 from commentextract.merge import merge_results, suggest_group_name
-from .samples import W, make_word, make_pdf, patch_zip
+from .samples import W, make_word, patch_zip
 
 
 def review_returns(tmp_path):
@@ -46,26 +46,15 @@ def test_merge_preserves_rows_identity_replies_and_duplicate_choice(tmp_path):
     workbook = load_workbook(output)
     summary = workbook["评审汇总"]
     assert summary.max_row == 3
-    assert summary.max_column == 9
-    assert summary["F2"].value == "是"
-    assert summary["F3"].value == "重复"
+    assert summary.max_column == 10
+    assert summary["G2"].value == "是"
+    assert summary["G3"].value == "重复"
     report = workbook["提取报告"]
     assert report["B3"].value == 2
-    assert report["B4"].value == '=COUNTIF(\'评审汇总\'!F:F,"重复")'
+    assert report["B4"].value == '=COUNTIF(\'评审汇总\'!G:G,"重复")'
     assert report["B5"].value == "=B3-B4"
     assert all(any(str(result.source) == row[1].value for row in report.iter_rows(min_col=1, max_col=2))
                for result in results)
-    workbook.close()
-
-
-def test_grouped_pdf_screenshots_use_each_real_source(tmp_path):
-    results = [extract_file(make_pdf(tmp_path / "A_rev by wwl.pdf")),
-               extract_file(make_pdf(tmp_path / "A_rev by zsl.pdf", rotated=True))]
-    merged = merge_results(results, "A")
-    assert not merged.source.exists()  # virtual output group is never read as a PDF
-    output = export_result(merged, tmp_path / "out")
-    workbook = load_workbook(output)
-    assert all(workbook["评审汇总"].cell(row, 9).hyperlink for row in range(2, 6))
     workbook.close()
 
 
@@ -80,8 +69,8 @@ def test_gui_explicit_grouping_retains_read_only_fields(tmp_path, monkeypatch):
     assert len(window.results) == 1
     assert window.table.rowCount() == 2
     assert len(window.results[0].sources) == 2
-    window.table.item(0, 5).setText("是")
-    window.table.item(1, 5).setText("重复")
+    window.table.item(0, 6).setText("是")
+    window.table.item(1, 6).setText("重复")
     assert window.results[0].issues[1].acceptance == "重复"
     window.dirty = False
     window.close()

@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 import sys
+import traceback
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QItemSelectionModel
-from PySide6.QtGui import QDesktopServices, QFont, QPixmap, QPainter, QColor
+from PySide6.QtGui import QDesktopServices, QFont, QPainter, QColor
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QFileDialog,
-    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
-    QAbstractItemView, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
+    QApplication, QComboBox, QDialog, QInputDialog, QListWidgetItem,
+    QMainWindow, QMessageBox, QTableWidgetItem, QTextEdit, QVBoxLayout,
+    QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 
 from . import __version__
-from .extract import SUPPORTED, extract_file
-from .models import ACCEPTANCE, HEADERS
+from .extract import extract_file
+from .models import ACCEPTANCE, ACCEPTANCE_COLUMN, CONTEXT_COLUMN
 from .merge import merge_results, suggest_group_name
 from .ui import build_ui, app_icon
+from .dialogs import choose_files, choose_directory
+from .inputs import collect_files
+from .models import Extraction
+
+
+def content_preview(value):
+    return value[:160].rstrip() + "....." if len(value) > 160 else value
 
 
 class AcceptanceDelegate(QStyledItemDelegate):
@@ -63,11 +71,12 @@ class Worker(QThread):
     exported = Signal(str)
     failure = Signal(str)
 
-    def __init__(self, items, output=None, screenshots=True, parent=None):
+    def __init__(self, items, output=None, parent=None):
         super().__init__(parent)
         self.items = list(items)
         self.output = output
-        self.screenshots = screenshots
+        self.records = []
+        self.skipped = []
 
     def run(self):
         for index, item in enumerate(self.items):
@@ -78,11 +87,18 @@ class Worker(QThread):
             try:
                 if self.output:
                     from .export import export_result
-                    self.exported.emit(str(export_result(item, self.output, self.screenshots)))
+                    target = str(export_result(item, self.output))
+                    self.exported.emit(target)
+                    self.records.append(f"导出成功：{item.source}\n  → {target}")
                 else:
-                    self.item_ready.emit(extract_file(item))
+                    result = extract_file(item)
+                    self.item_ready.emit(result)
+                    self.records.append(f"{'提取失败' if result.error else '提取成功'}：{result.source}\n  {result.error or str(len(result.issues)) + ' 条意见'}")
             except Exception as exc:
                 self.failure.emit(f"{name}：{exc}")
+                self.records.append(f"处理失败：{name}\n{traceback.format_exc()}")
+                if not self.output:
+                    self.item_ready.emit(Extraction(Path(item), error=f"{type(exc).__name__}：{exc}"))
             self.progress.emit(index + 1, len(self.items), name)
 
 
@@ -95,8 +111,7 @@ class MainWindow(QMainWindow):
         self.failures = []
         self.loading = False
         self.last_output = None
-        self.preview_cache = {}
-        self.preview_data = None
+        self.batch_history = []
         self.dirty = False
         build_ui(self, AcceptanceDelegate)
         self.add_button.clicked.connect(self.choose_files)
@@ -111,7 +126,7 @@ class MainWindow(QMainWindow):
         self.table.itemChanged.connect(self.item_changed)
         self.search.textChanged.connect(self.filter_rows)
         self.acceptance_filter.currentTextChanged.connect(self.filter_rows)
-        self.zoom_button.clicked.connect(self.open_preview)
+        self.report_button.clicked.connect(self.show_report)
         self.open_output_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_output))))
         self.update_counts()
 
@@ -128,43 +143,44 @@ class MainWindow(QMainWindow):
             self.stat_values[key].setText(str(value))
         self.stat_notes["effective"].setText(f"已排除 {duplicates} 条重复意见")
         self.file_count.setText(str(len(self.results)))
+        source_count = sum(len(r.sources) if r.sources else 1 for r in self.results)
+        failed = sum(bool(r.error) for r in self.results)
+        self.stat_notes["files"].setText(f"{source_count} 份源文件 · {failed} 份提取失败")
         self.export_button.setText(f"导出 {exports} 份 Excel" if exports else "批量导出 Excel")
         self.export_button.setEnabled(exports > 0 and not self.busy())
         self.merge_button.setEnabled(len(self.file_list.selectedIndexes()) >= 2 and not self.busy())
 
     def set_busy(self, busy):
         for widget in [self.add_button, self.folder_button, self.clear_button, self.merge_button,
-                       self.export_button, self.table, self.shots]:
+                       self.export_button, self.table]:
             widget.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
         self.cancel_button.setVisible(busy)
         self.update_counts()
 
     def choose_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "选择评审文件", "", "评审文件 (*.docx *.xlsx *.pdf *.pptx)")
+        files = choose_files(self)
         if files:
             self.add_files(files)
 
     def choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择评审文件夹（包含子目录）")
+        folder = choose_directory(self, "选择评审文件夹（包含子目录）")
         if folder:
             self.add_files([folder])
 
     def add_files(self, paths):
         if self.busy():
             return
-        files = []
-        for value in paths:
-            path = Path(value)
-            files.extend(sorted(path.rglob("*")) if path.is_dir() else [path])
         existing = {source for result in self.results for source in (result.sources or [result.source])}
-        files = list(dict.fromkeys(p.resolve() for p in files if p.is_file()
-                                   and p.suffix.lower() in SUPPORTED and not p.name.startswith("~$")
-                                   and "_评审意见" not in p.stem and p.resolve() not in existing))
+        files, skipped = collect_files(paths, existing)
+        self.batch_history.extend(f"跳过：{path}\n  {reason}" for path, reason in skipped)
+        self.report_button.setEnabled(True)
         if not files:
-            QMessageBox.information(self, "没有新文件", "未找到新的受支持文件。临时文件和本工具的导出表会自动跳过。")
+            QMessageBox.information(self, "没有新文件", "未找到新的受支持文件。\n" + "\n".join(f"{p.name}：{r}" for p, r in skipped))
             return
-        self.start_worker(Worker(files, parent=self))
+        worker = Worker(files, parent=self)
+        worker.skipped = skipped
+        self.start_worker(worker)
 
     def start_worker(self, worker):
         self.worker = worker
@@ -206,27 +222,62 @@ class MainWindow(QMainWindow):
         worker = self.worker
         interrupted = worker.isInterruptionRequested()
         is_export = bool(worker.output)
+        self.batch_history.extend(worker.records)
         self.worker = None
         worker.deleteLater()
         self.set_busy(False)
-        self.show_detail()
         if is_export:
             # Only acceptance choices require protection against accidental loss.
             # Clear the dirty flag after a complete, successful batch export.
             if not interrupted and not self.failures:
                 self.dirty = False
             self.open_output_button.setEnabled(bool(self.output_paths))
-            text = f"{'已停止' if interrupted else '导出完成'}：{len(self.output_paths)} 个 Excel"
-            if self.failures:
-                QMessageBox.warning(self, "部分文件导出失败", "\n".join(self.failures))
-            elif self.output_paths:
-                QMessageBox.information(self, "导出完成", text + "。\n截图和长文本附件请与 Excel 一起保留。")
+            excluded = [r for r in self.results if r.error]
+            remaining = len(worker.items) - len(worker.records)
+            text = (f"{'已停止' if interrupted else '导出完成'}：计划 {len(worker.items)} 份，"
+                    f"成功 {len(self.output_paths)} 份，导出失败 {len(self.failures)} 份，未处理 {remaining} 份；"
+                    f"另有 {len(excluded)} 份源文件提取失败，未导出。")
+            self.batch_history.append(text)
+            report_note = ""
+            try:
+                report = Path(worker.output) / ("批量导出结果_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6] + ".txt")
+                report.write_text(self.report_text(), encoding="utf-8-sig")
+                report_note = f"\n逐文件结果：{report}"
+            except OSError as exc:
+                report_note = f"\n结果报告无法保存：{exc}。可点击“处理记录”查看。"
+            if self.failures or excluded or interrupted:
+                errors = self.failures + [f"{r.source.name}：{r.error}" for r in excluded]
+                QMessageBox.warning(self, "批量导出结果", text + "\n" + "\n".join(errors) + report_note)
+            else:
+                QMessageBox.information(self, "导出完成", text + report_note + "\n如有长文本附件，请与 Excel 一起保留。")
         else:
-            failed = sum(bool(r.error) for r in self.results)
-            text = f"{'已停止' if interrupted else '提取完成'} · {len(self.results)} 个文件 · {failed} 个失败"
-            if self.failures:
-                QMessageBox.warning(self, "处理异常", "\n".join(self.failures))
+            failed = [r for r in self.results if r.error]
+            text = f"{'已停止' if interrupted else '提取完成'} · 本批处理 {len(worker.records)}/{len(worker.items)} 份 · 跳过 {len(worker.skipped)} 份 · 列表中 {len(failed)} 份失败"
+            self.batch_history.append(text)
+            if failed or worker.skipped or self.failures:
+                details = [f"{r.source.name}：{r.error}" for r in failed]
+                details.extend(f"跳过 {p.name}：{r}" for p, r in worker.skipped)
+                QMessageBox.warning(self, "文件处理结果", text + "\n\n" + "\n".join(details + self.failures))
         self.status.setText(text)
+
+    def report_text(self):
+        lines = [f"CommentExtractor {__version__} · 逐文件处理记录", *self.batch_history, "当前列表："]
+        for result in self.results:
+            sources = result.sources or [result.source]
+            lines.append(f"{result.source.name}：{result.error or str(len(result.issues)) + ' 条意见'}")
+            lines.extend("  来源：" + str(p) for p in sources)
+        return "\n\n".join(lines)
+
+    def show_report(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("逐文件处理记录")
+        dialog.resize(900, 600)
+        layout = QVBoxLayout(dialog)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(self.report_text())
+        layout.addWidget(text)
+        dialog.exec()
 
     def current_result(self):
         index = self.file_list.currentRow()
@@ -241,20 +292,16 @@ class MainWindow(QMainWindow):
         self.loading = True
         self.table.setRowCount(0)
         self.detail.clear()
-        self.preview.clear()
-        self.preview_data = None
-        self.zoom_button.setEnabled(False)
-        self.preview.setText("选择 PDF 意见查看上下文")
         result = self.current_result()
         self.file_title.setText((result.source.stem if result.sources else result.source.name) if result else "等待添加文件")
         self.file_title.setToolTip(str(result.source) if result else "")
         if result:
             self.table.setRowCount(len(result.issues))
             for row, issue in enumerate(result.issues):
-                for column, value in enumerate(issue.values("可预览" if issue.root.page is not None else "")):
-                    item = QTableWidgetItem(str(value))
+                for column, value in enumerate(issue.values(result.source.name)):
+                    item = QTableWidgetItem(content_preview(str(value)) if column == CONTEXT_COLUMN else str(value))
                     item.setToolTip(str(value))
-                    if column != 5:
+                    if column != ACCEPTANCE_COLUMN:
                         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(row, column, item)
             notices = [result.error] if result.error else result.warnings
@@ -269,8 +316,9 @@ class MainWindow(QMainWindow):
         query = self.search.text().strip().casefold()
         acceptance = self.acceptance_filter.currentText()
         for row in range(self.table.rowCount()):
-            content = " ".join(self.table.item(row, col).text() for col in range(self.table.columnCount()))
-            value = self.table.item(row, 5).text()
+            result = self.current_result()
+            content = " ".join(str(v) for v in result.issues[row].values(result.source.name))
+            value = self.table.item(row, ACCEPTANCE_COLUMN).text()
             matches = acceptance == "全部接受情况" or value == ("" if acceptance == "未填写" else acceptance)
             self.table.setRowHidden(row, query not in content.casefold() or not matches)
 
@@ -282,14 +330,15 @@ class MainWindow(QMainWindow):
             return
         issue = result.issues[item.row()]
         value = item.text()
-        if item.column() != 5:
+        if item.column() != ACCEPTANCE_COLUMN:
             # Also reject programmatic writes/paste paths, rather than relying
             # solely on the view's read-only flags.
             self.loading = True
-            item.setText(str(issue.values("可预览" if issue.root.page is not None else "")[item.column()]))
+            original = str(issue.values(result.source.name)[item.column()])
+            item.setText(content_preview(original) if item.column() == CONTEXT_COLUMN else original)
             self.loading = False
             return
-        if item.column() == 5:
+        if item.column() == ACCEPTANCE_COLUMN:
             if value not in ACCEPTANCE:
                 self.loading = True
                 item.setText(issue.acceptance)
@@ -307,67 +356,19 @@ class MainWindow(QMainWindow):
         if not issue:
             return
         self.detail.setPlainText(
-            f"{issue.id} · {issue.root.location}\n\n对应内容\n{issue.root.context or '未记录明确对应原文'}"
+            f"{issue.id} · {issue.root.location}\n文件名：{(issue.source or self.current_result().source).name}\n\n对应内容\n{issue.root.context or '未记录明确对应原文'}"
             f"\n\n评审人：{issue.root.author or '未署名'}\n{issue.root.text}"
-            f"\n\n是否接受：{issue.acceptance or '待填写'}\n\n回复\n{issue.values()[7] or '暂无回复'}")
-        self.preview.clear()
-        self.preview_data = None
-        self.zoom_button.setEnabled(False)
-        if self.busy():
-            # MuPDF must not render in the GUI while the worker reads/renders
-            # PDF documents. Resume previews only after that worker has ended.
-            self.preview.setText("当前任务完成后显示上下文预览。")
-            return
-        if issue.root.page is None:
-            result = self.current_result()
-            source = issue.source or result.source
-            self.preview.setText("PPT 截图暂未支持，请按幻灯片编号查看原文件。" if source.suffix.lower() == ".pptx"
-                                 else "可依据原文及位置查看原文件。")
-            return
-        try:
-            result = self.current_result()
-            source = issue.source or result.source
-            key = (str(source), issue.id)
-            data = self.preview_cache.get(key)
-            if data is None:
-                from .pdf import render_context
-                data = render_context(source, issue.root)
-                if len(self.preview_cache) >= 8:
-                    self.preview_cache.pop(next(iter(self.preview_cache)))
-                self.preview_cache[key] = data
-            pixmap = QPixmap()
-            pixmap.loadFromData(data)
-            self.preview_data = data
-            self.zoom_button.setEnabled(True)
-            self.preview.setPixmap(pixmap.scaledToWidth(360, Qt.SmoothTransformation))
-        except Exception as exc:
-            self.preview.setText(f"预览不可用：{exc}")
-
-    def open_preview(self):
-        if not self.preview_data:
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("PDF 上下文 · 红框为批注位置")
-        dialog.resize(1000, 800)
-        layout = QVBoxLayout(dialog)
-        scroll = QScrollArea()
-        label = QLabel()
-        pixmap = QPixmap()
-        pixmap.loadFromData(self.preview_data)
-        label.setPixmap(pixmap)
-        scroll.setWidget(label)
-        layout.addWidget(scroll)
-        dialog.exec()
+            f"\n\n是否接受：{issue.acceptance or '待填写'}\n\n回复\n{issue.values()[8] or '暂无回复'}")
 
     def export(self):
         results = [r for r in self.results if not r.error]
         if not results:
             QMessageBox.information(self, "没有可导出数据", "请先添加并提取文件；提取失败的文件不会导出为空表。")
             return
-        folder = QFileDialog.getExistingDirectory(self, "选择输出目录")
+        folder = choose_directory(self, "选择输出目录")
         if folder:
             self.last_output = Path(folder)
-            self.start_worker(Worker(results, folder, self.shots.isChecked(), self))
+            self.start_worker(Worker(results, folder, parent=self))
 
     def confirm_discard(self):
         return not self.dirty or QMessageBox.question(
@@ -378,7 +379,8 @@ class MainWindow(QMainWindow):
         if not self.confirm_discard():
             return
         self.results = []
-        self.preview_cache.clear()
+        self.batch_history = []
+        self.report_button.setEnabled(False)
         self.file_list.clear()
         self.update_counts()
         self.message.setText("点击“添加文件”，或将文件拖入窗口。")
@@ -402,13 +404,14 @@ class MainWindow(QMainWindow):
         # choices are copied and remain dirty until a successful export.
         selected_rows = set(rows)
         self.results = [result for row, result in enumerate(self.results) if row not in selected_rows] + [merged]
-        self.preview_cache.clear()
         self.file_list.clear()
         for result in self.results:
             self.append_file_item(result)
         self.file_list.setCurrentRow(len(self.results) - 1, QItemSelectionModel.ClearAndSelect)
         self.update_counts()
-        self.status.setText(f"已合并 {len(merged.sources)} 份评审。相同意见请人工将后出现的行标记为“重复”。")
+        note = f"已合并 {len(merged.sources)} 份评审为 {merged.source.stem}，导出时生成 1 份 Excel。"
+        self.batch_history.append(note)
+        self.status.setText(note + "相同意见请人工将后出现的行标记为“重复”。")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and not self.busy():
@@ -438,6 +441,8 @@ def main():
     application.setStyle("Fusion")
     application.setFont(QFont("Microsoft YaHei UI", 10))
     window = MainWindow()
+    from .diagnostics import install_exception_handler
+    install_exception_handler(window)
     window.show()
     paths = [arg for arg in sys.argv[1:] if Path(arg).is_file() or Path(arg).is_dir()]
     if paths:

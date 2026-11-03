@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 from .models import Comment
-from .ooxml import Package, attr, elements, local, text
+from .ooxml import Package, attr, elements, text
+from openpyxl.utils.cell import range_boundaries, get_column_letter
+
+
+def cell_range(ref):
+    """Canonical A1 address, including reverse-order range endpoints."""
+    left, top, right, bottom = range_boundaries(ref.replace("$", "").upper())
+    if None in (left, top, right, bottom) or min(left, top, right, bottom) < 1:
+        raise ValueError("批注单元格地址无效：" + ref)
+    left, right = sorted((left, right))
+    top, bottom = sorted((top, bottom))
+    start, end = f"{get_column_letter(left)}{top}", f"{get_column_letter(right)}{bottom}"
+    return (start if start == end else start + ":" + end), (left, top, right, bottom)
 
 
 def read_excel(path, warnings):
@@ -23,7 +35,9 @@ def read_excel(path, warnings):
                 continue
             part = rels[rid][1]
             cells = {}
-            for cell in elements(package.xml(part), "c"):
+            sheet_xml = package.xml(part)
+            merged = [cell_range(attr(node, "ref")) for node in elements(sheet_xml, "mergeCell")]
+            for cell in elements(sheet_xml, "c"):
                 values = elements(cell, "v")
                 raw = values[0].text or "" if values else ""
                 if cell.get("t") == "s":
@@ -35,6 +49,33 @@ def read_excel(path, warnings):
                     if formulas:
                         raw = "=" + (formulas[0].text or "")
                 cells[cell.get("r")] = raw
+
+            def anchor(ref):
+                if not ref:
+                    warnings.append(f"{attr(sheet, 'name')}：有批注未记录单元格地址。")
+                    return f"{attr(sheet, 'name')} · 位置未记录", ""
+                address, bounds = cell_range(ref)
+                left, top, right, bottom = bounds
+                if left == right and top == bottom:
+                    for merged_ref, merged_bounds in merged:
+                        ml, mt, mr, mb = merged_bounds
+                        if ml <= left <= mr and mt <= top <= mb:
+                            address, bounds = merged_ref, merged_bounds
+                            break
+                left, top, right, bottom = bounds
+                if left == right and top == bottom:
+                    content = cells.get(address, "")
+                else:
+                    values = []
+                    for coordinate, value in cells.items():
+                        if not value:
+                            continue
+                        _, (col, row, _, _) = cell_range(coordinate)
+                        if left <= col <= right and top <= row <= bottom:
+                            values.append((row, col, coordinate, value))
+                    values.sort()
+                    content = values[0][3] if len(values) == 1 else "\n".join(f"{c}：{v}" for _, _, c, v in values)
+                return f"{attr(sheet, 'name')} · {address}", content
             links = package.rels(part)
             threaded_cells = set()
             for kind, target in links.values():
@@ -55,10 +96,11 @@ def read_excel(path, warnings):
                         ref = attr(ancestor, "ref")
                     threaded_cells.add(ref)
                     parent = attr(node, "parentId")
+                    location, context = anchor(ref)
                     result.append(Comment(target + "#" + attr(node, "id"),
                                           people.get(attr(node, "personId"), ""), text(node),
                                           target + "#" + parent if parent else None,
-                                          f"{attr(sheet, 'name')}!{ref}", cells.get(ref, "")))
+                                          location, context))
             for kind, target in links.values():
                 if kind != "comments":
                     continue
@@ -72,6 +114,7 @@ def read_excel(path, warnings):
                         continue
                     author_id = int(attr(node, "authorId", "0"))
                     author = authors[author_id] if author_id < len(authors) else ""
+                    location, context = anchor(ref)
                     result.append(Comment(target + "#" + str(index), author, content,
-                                          location=f"{attr(sheet, 'name')}!{ref}", context=cells.get(ref, "")))
+                                          location=location, context=context))
     return result

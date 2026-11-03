@@ -4,13 +4,10 @@ CommentExtractor is licensed under GNU AGPL v3.0 only. It uses the following lib
 
 | Component | License family | Upstream |
 |---|---|---|
-| PyMuPDF / MuPDF | AGPL v3 (open-source distribution) | https://pymupdf.readthedocs.io/en/latest/about.html |
 | PySide6 / Qt / shiboken6 | LGPL v3 / GPL / commercial, depending on component | https://doc.qt.io/qtforpython-6/licenses.html |
 | openpyxl | MIT | https://openpyxl.readthedocs.io/ |
 | et-xmlfile | MIT | https://pypi.org/project/et-xmlfile/ |
 | defusedxml | PSF | https://github.com/tiran/defusedxml |
-| lxml / libxml2 / libxslt (bundled optional XML acceleration) | BSD / MIT and upstream notices | https://lxml.de/copyright.html |
-| Pillow | MIT-CMU / HPND and bundled codec licenses | https://pillow.readthedocs.io/en/stable/about.html |
 | CPython | PSF and included third-party notices | https://docs.python.org/3/license.html |
 | PyInstaller runtime bootloader | GPL with bootloader exception | https://pyinstaller.org/en/stable/license.html |
 
@@ -26,4 +23,6 @@ The PyInstaller bootloader exception is included as `licenses/PyInstaller-COPYIN
 The source and build instructions for CommentExtractor accompany the repository.
 Upstream source for exact dependency versions can be obtained from their project
 sites / PyPI. Installed versions are recorded in `requirements-lock.txt` for the
-initial Windows build. No proprietary PyMuPDF license is included or assumed.
+Windows development environment. PyMuPDF / MuPDF have been removed in v0.2.3.
+Pillow and lxml are development tools for icons and synthetic Office fixtures;
+they are explicitly excluded from the Windows application bundle.

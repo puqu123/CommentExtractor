@@ -14,7 +14,7 @@ from commentextract.extract import extract_file
 from tests.samples import create_samples
 
 if __name__ == "__main__":
-    base = Path("local_data/demo")
+    base = Path("local_data/demo-v0.2.3")
     create_samples(base)
     application = QApplication([])
     # Qt's offscreen plugin has no Windows font discovery. Use an installed font
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     window.resize(1600, 980)
     for path in sorted(base.iterdir()):
         window.add_result(extract_file(path))
-    window.file_list.setCurrentRow(3, QItemSelectionModel.ClearAndSelect)
+    window.file_list.setCurrentRow(1, QItemSelectionModel.ClearAndSelect)
     window.show()
     application.processEvents()
     window.grab().save("local_data/ui-preview.png")

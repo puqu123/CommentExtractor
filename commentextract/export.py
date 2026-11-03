@@ -11,12 +11,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 
-from .models import HEADERS, ACCEPTANCE
+from .models import HEADERS, ACCEPTANCE, ACCEPTANCE_COLUMN
 
 INVALID_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
-def export_result(result, output_dir, screenshots=True):
+def export_result(result, output_dir):
     """One workbook per source; atomically reserve names and never overwrite."""
     if result.error:
         raise ValueError("提取失败的文件不能导出为空意见表：" + result.error)
@@ -66,36 +66,21 @@ def export_result(result, output_dir, screenshots=True):
         for row, issue in enumerate(result.issues, 2):
             if issue.acceptance not in ACCEPTANCE:
                 raise ValueError("是否接受只能填写：是、否、部分接受、重复，或留空。")
-            screenshot = None
-            source = issue.source or result.source
-            if screenshots and source.suffix.lower() == ".pdf":
-                try:
-                    from .pdf import render_context
-                    image = render_context(source, issue.root)
-                    if image:
-                        assets.mkdir(exist_ok=True)
-                        screenshot = assets / f"{issue.id}.png"
-                        screenshot.write_bytes(image)
-                        created_assets.append(screenshot)
-                except Exception as exc:
-                    warnings.append(f"{issue.id} 截图未生成：{exc}")
-            for column, value in enumerate(issue.values("查看截图" if screenshot else ""), 1):
+            for column, value in enumerate(issue.values(result.source.name), 1):
                 set_text(summary.cell(row, column), value)
-            if screenshot:
-                summary.cell(row, 9).hyperlink = quote(screenshot.relative_to(output_dir).as_posix(), safe="/")
-                summary.cell(row, 9).style = "Hyperlink"
         validation = DataValidation(type="list", formula1='"是,否,部分接受,重复"', allow_blank=True)
         validation.errorTitle = "请选择接受情况"
         validation.error = "请选择：是、否、部分接受、重复；也可以留空。"
         validation.showErrorMessage = True
         validation.errorStyle = "stop"
         summary.add_data_validation(validation)
-        validation.add(f"F2:F{max(2, summary.max_row)}")
+        acceptance_letter = get_column_letter(ACCEPTANCE_COLUMN + 1)
+        validation.add(f"{acceptance_letter}2:{acceptance_letter}{max(2, summary.max_row)}")
         report = workbook.create_sheet("提取报告")
         report.append(["项目", "结果"])
         report.append(["处理结果", "提取完成" if result.issues else "未发现可读取批注"])
         report.append(["主意见数量", len(result.issues)])
-        report.append(["重复意见数量", '=COUNTIF(\'评审汇总\'!F:F,"重复")'])
+        report.append(["重复意见数量", f'=COUNTIF(\'评审汇总\'!{acceptance_letter}:{acceptance_letter},"重复")'])
         report.append(["去除已标记重复的意见数量", "=B3-B4"])
         workbook.calculation.fullCalcOnLoad = True
         workbook.calculation.forceFullCalc = True
@@ -103,7 +88,7 @@ def export_result(result, output_dir, screenshots=True):
         report.append(["回复数量", result.comment_count - len(result.issues)])
         report.append(["使用说明", "是否接受留空待填写；同一问题首次计入意见，后续相同意见人工标记为重复。回复人仅表示回复作者。"])
         report.append(["统计说明", "重复数和去重后的数量使用公式，Excel 打开后自动计算；同一问题后续各行标记为重复，首次出现的行保留原接受情况。"])
-        report.append(["附件说明", "如有截图或 TXT，请将 Excel 和同名附件目录一起移动。"])
+        report.append(["附件说明", "如有 TXT，请将 Excel 和同名附件目录一起移动。上下文截图列为兼容既有表格保留，当前版本留空。"])
         for warning in dict.fromkeys(warnings):
             report.append(["提示", ""])
             set_text(report.cell(report.max_row, 2), warning)
@@ -113,7 +98,7 @@ def export_result(result, output_dir, screenshots=True):
                 row = report.max_row + 1
                 set_text(report.cell(row, 1), issue.id)
                 set_text(report.cell(row, 2), str(issue.source or result.source))
-        widths = {"评审汇总": [14, 28, 48, 16, 52, 16, 22, 60, 18], "提取报告": [22, 100]}
+        widths = {"评审汇总": [14, 38, 28, 48, 16, 52, 16, 22, 60, 18], "提取报告": [22, 100]}
         for sheet in workbook:
             sheet.freeze_panes = "A2"
             sheet.auto_filter.ref = sheet.dimensions

@@ -53,9 +53,9 @@ def test_two_reviewers_one_responder_keep_separate_opinions(tmp_path):
     workbook = load_workbook(export_result(result, tmp_path / "out"))
     sheet = workbook["评审汇总"]
     assert sheet.max_row == 3
-    assert sheet["D2"].value == "评审人甲"
-    assert sheet["D3"].value == "评审人乙"
-    assert sheet["G2"].value == sheet["G3"].value == "被评审人丙"
-    assert "意见 1" in sheet["H2"].value and "意见 2" not in sheet["H2"].value
-    assert "意见 2" in sheet["H3"].value and "意见 1" not in sheet["H3"].value
+    assert sheet["E2"].value == "评审人甲"
+    assert sheet["E3"].value == "评审人乙"
+    assert sheet["H2"].value == sheet["H3"].value == "被评审人丙"
+    assert "意见 1" in sheet["I2"].value and "意见 2" not in sheet["I2"].value
+    assert "意见 2" in sheet["I3"].value and "意见 1" not in sheet["I3"].value
     workbook.close()
