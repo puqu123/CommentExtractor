@@ -16,9 +16,9 @@ from commentextract.extract import extract_file
 from tests.samples import W, make_excel, make_powerpoint, make_word, patch_zip
 
 
-GUIDE = """CommentExtractor v0.2.3 手工测试包（全部为虚构数据）
+GUIDE = """CommentExtractor v0.2.5 手工测试包（全部为虚构数据）
 
-先完整解压本测试包；程序使用 CommentExtractor v0.2.3。
+先完整解压本测试包；程序使用 CommentExtractor v0.2.5。
 每个场景开始前点击“清空列表”。导出到测试包之外的新建空文件夹，方便数文件。
 只选择场景里的 Word / Excel / PPT 文件，不要将说明、清单作为输入。
 所有人名、评审意见和回复均为虚构；现代评论／回复由程序构造 OOXML，用于本工具回归测试。
@@ -30,7 +30,7 @@ GUIDE = """CommentExtractor v0.2.3 手工测试包（全部为虚构数据）
 3. 02_Excel合并单元格和长内容.xlsx 应有 3 条意见：
    - 检查表 · B2，对应内容为 100。
    - 检查表 · B4:D5，是合并单元格，列表中长内容以 ..... 结束。
-     选择此行后，详情里能找到“全文结尾核对码：LONG-END-2026”。
+     双击此行的“对应原文／内容”单元格，弹窗里能找到“全文结尾核对码：LONG-END-2026”。
      导出的 Excel 同样保留这个结尾，不能截掉。
    - 检查表 · B7，是空单元格；对应原文为空，但评审意见必须保留。
 4. 04_原始_评审意见.docx 是原始文件，不能仅因为名字包含“_评审意见”就漏掉。
@@ -42,7 +42,7 @@ GUIDE = """CommentExtractor v0.2.3 手工测试包（全部为虚构数据）
 2. 左侧 Ctrl+A 选中这 5 份，点击“合并所选评审文件”，文档名称填“接口方案”。
 3. 应显示 5 份源文件、1 份待导出 Excel、5 条意见、5 条回复。
 4. 第一、第二位评审人提了同一个意见，必须保留两行，不能自动删掉。
-5. 按文件名 01 至 05 的顺序，将“是否接受”分别填为：是、重复、是、部分接受、否。
+5. 按文件名 01 至 05 的顺序，将“是否接受”分别填为：是、重复、是、否、否。
 6. 应显示 4 条有效意见、1 条重复；导出只得到“接口方案_评审意见.xlsx”一份。
 7. 汇总表中的“文件名”应逐行显示 5 个不同的原始评审返回文件名。
    “回复人”均为虚构的“被评审人周工”，回复内容各不相同。
@@ -152,5 +152,5 @@ def make_pack(output):
 
 
 if __name__ == "__main__":
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("local_data/CommentExtractor-v0.2.3-手工测试数据")
+    target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("local_data/CommentExtractor-v0.2.5-手工测试数据")
     print(make_pack(target))

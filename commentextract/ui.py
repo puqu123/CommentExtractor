@@ -6,11 +6,11 @@ from PySide6.QtGui import QColor, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QListWidget, QProgressBar, QPushButton,
-    QSplitter, QTableWidget, QTextEdit, QVBoxLayout, QWidget, QSizePolicy,
+    QSplitter, QTableWidget, QVBoxLayout, QWidget, QSizePolicy,
 )
 
 from . import __version__
-from .models import HEADERS, ACCEPTANCE_COLUMN
+from .models import HEADERS, ACCEPTANCE_COLUMN, ACCEPTANCE
 
 ICON_PATH = Path(__file__).resolve().parent / "assets/app.ico"
 
@@ -71,7 +71,8 @@ def build_ui(window, acceptance_delegate):
     outer.addLayout(body, 1)
     rail = QWidget()
     rail.setObjectName("sidebar")
-    rail.setFixedWidth(246)
+    rail.setMinimumWidth(190)
+    rail.setMaximumWidth(400)
     rail_layout = QVBoxLayout(rail)
     rail_layout.setContentsMargins(16, 24, 16, 16)
     rail_layout.setSpacing(14)
@@ -110,25 +111,16 @@ def build_ui(window, acceptance_delegate):
     version = QLabel(f"v{__version__}  ·  AGPL-3.0")
     version.setObjectName("railHint")
     rail_layout.addWidget(version)
-    body.addWidget(rail)
+    window.workspace_splitter = QSplitter(Qt.Horizontal)
+    window.workspace_splitter.setChildrenCollapsible(False)
+    window.workspace_splitter.setHandleWidth(6)
+    window.workspace_splitter.addWidget(rail)
+    body.addWidget(window.workspace_splitter)
 
     main_panel = QWidget()
     main = QVBoxLayout(main_panel)
     main.setContentsMargins(24, 22, 24, 18)
     main.setSpacing(16)
-    intro = QHBoxLayout()
-    heading_block = QVBoxLayout()
-    heading_block.setSpacing(5)
-    title = QLabel("整理这一批评审意见")
-    title.setObjectName("pageTitle")
-    heading_block.addWidget(title)
-    caption = QLabel("导入文件 → 查看意见 → 按需填写接受情况 → 导出 Excel")
-    caption.setObjectName("muted")
-    heading_block.addWidget(caption)
-    intro.addLayout(heading_block)
-    intro.addStretch()
-    main.addLayout(intro)
-
     stats = QHBoxLayout()
     stats.setSpacing(12)
     window.stat_values = {}
@@ -140,24 +132,25 @@ def build_ui(window, acceptance_delegate):
         card = QFrame()
         card.setObjectName("statCard")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(16, 12, 16, 12)
+        card_layout.setContentsMargins(12, 8, 12, 8)
         card_layout.setSpacing(3)
+        card_heading = QHBoxLayout()
         label = QLabel(title)
         label.setObjectName("muted")
         value = QLabel("0")
         value.setObjectName("statValue")
         footnote = QLabel(note)
         footnote.setObjectName("statNote")
-        card_layout.addWidget(label)
-        card_layout.addWidget(value)
+        card_heading.addWidget(label)
+        card_heading.addStretch()
+        card_heading.addWidget(value)
+        card_layout.addLayout(card_heading)
         card_layout.addWidget(footnote)
         window.stat_values[key] = value
         window.stat_notes[key] = footnote
         stats.addWidget(card, 1)
     main.addLayout(stats)
 
-    work_splitter = QSplitter(Qt.Vertical)
-    work_splitter.setHandleWidth(8)
     table_card = QFrame()
     table_card.setObjectName("card")
     table_layout = QVBoxLayout(table_card)
@@ -182,7 +175,7 @@ def build_ui(window, acceptance_delegate):
     window.search.setClearButtonEnabled(True)
     filters.addWidget(window.search, 1)
     window.acceptance_filter = QComboBox()
-    window.acceptance_filter.addItems(["全部接受情况", "未填写", "是", "否", "部分接受", "重复"])
+    window.acceptance_filter.addItems(["全部接受情况", "未填写", *ACCEPTANCE[1:]])
     window.acceptance_filter.setMinimumWidth(135)
     filters.addWidget(window.acceptance_filter)
     table_layout.addLayout(filters)
@@ -193,38 +186,37 @@ def build_ui(window, acceptance_delegate):
     window.table.setSelectionMode(QAbstractItemView.SingleSelection)
     window.table.setWordWrap(True)
     window.table.setFrameShape(QFrame.NoFrame)
-    window.table.verticalHeader().hide()
-    window.table.verticalHeader().setDefaultSectionSize(72)
+    window.table.setMinimumHeight(280)
+    window.table.verticalHeader().setVisible(True)
+    window.table.verticalHeader().setSectionResizeMode(QHeaderView.Interactive)
+    window.table.verticalHeader().setMinimumSectionSize(40)
+    window.table.verticalHeader().setDefaultSectionSize(96)
+    window.table.verticalHeader().setToolTip("拖动行号之间的边界调整行高。")
     window.table.setItemDelegateForColumn(ACCEPTANCE_COLUMN, acceptance_delegate(window.table))
     for index, width in enumerate([86, 200, 160, 205, 95, 255, 106, 105, 240, 110]):
         window.table.setColumnWidth(index, width)
     window.table.setColumnHidden(9, True)  # Reserved export column; Office screenshots are not produced.
     window.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+    window.table.horizontalHeader().setSectionsMovable(True)
+    window.table.horizontalHeader().setToolTip("拖动列边界调整宽度；拖动表头调整列顺序。")
+    # Put the text people are reading inside even the smallest supported window.
+    # Logical column indexes and the exported workbook schema stay unchanged.
+    visual_order = ["评审人", "评审意见", "是否接受", "回复人", "回复内容",
+                    "对应原文／内容", "文件名", "位置", "意见编号", "上下文截图"]
+    header = window.table.horizontalHeader()
+    for visual_index, name in enumerate(visual_order):
+        header.moveSection(header.visualIndex(HEADERS.index(name)), visual_index)
     table_layout.addWidget(window.table, 1)
     window.message = QLabel("支持拖入文件或文件夹，可混合选择 Word / Excel / PPT。")
-    window.message.setWordWrap(True)
+    window.message.setWordWrap(False)
+    window.message.setMinimumWidth(0)
+    window.message.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
     window.message.setObjectName("tableHint")
     table_layout.addWidget(window.message)
-    work_splitter.addWidget(table_card)
-
-    detail_card = QFrame()
-    detail_card.setObjectName("card")
-    details = QVBoxLayout(detail_card)
-    details.setContentsMargins(16, 12, 16, 12)
-    details.setSpacing(8)
-    label = QLabel("意见与回复详情")
-    label.setObjectName("sectionTitle")
-    details.addWidget(label)
-    details_splitter = QSplitter()
-    window.detail = QTextEdit()
-    window.detail.setObjectName("detailText")
-    window.detail.setReadOnly(True)
-    window.detail.setPlaceholderText("选择一条意见，在这里查看完整原文、评审意见和回复。\n\n只需在表格中填写“是否接受”，也可以留空直接导出。")
-    details_splitter.addWidget(window.detail)
-    details.addWidget(details_splitter, 1)
-    work_splitter.addWidget(detail_card)
-    work_splitter.setSizes([440, 225])
-    main.addWidget(work_splitter, 1)
+    reading_hint = QLabel("拖动表头／行号边界调整列宽和行高；双击内容查看全文。")
+    reading_hint.setObjectName("tableHint")
+    table_layout.addWidget(reading_hint)
+    main.addWidget(table_card, 1)
 
     footer = QHBoxLayout()
     footer.setSpacing(12)
@@ -253,7 +245,9 @@ def build_ui(window, acceptance_delegate):
     window.progress.setTextVisible(False)
     window.progress.setMaximumHeight(3)
     main.addWidget(window.progress)
-    body.addWidget(main_panel, 1)
+    window.workspace_splitter.addWidget(main_panel)
+    window.workspace_splitter.setStretchFactor(1, 1)
+    window.workspace_splitter.setSizes([230, 1290])
 
     window.setStyleSheet("""
         QMainWindow, #workspace { background: #F2F5F9; }
@@ -284,7 +278,7 @@ def build_ui(window, acceptance_delegate):
         QPushButton#primary:disabled { background: #ABCCC4; border-color: #ABCCC4; color: #F5FAF8; }
         #smallButton { padding: 4px 9px; font-size: 11px; }
         #statCard, #card { background: white; border: 1px solid #E2E9F0; border-radius: 9px; }
-        #statValue { font-size: 27px; font-weight: 700; color: #1B3D55; }
+        #statValue { font-size: 23px; font-weight: 700; color: #1B3D55; }
         #statNote { font-size: 11px; color: #8394A5; }
         #sectionTitle { font-size: 14px; font-weight: 600; color: #213C53; }
         #readOnly { font-size: 11px; color: #688299; background: #F1F5F9; padding: 4px 9px; border-radius: 4px; }
@@ -292,11 +286,12 @@ def build_ui(window, acceptance_delegate):
         QLineEdit:focus, QComboBox:focus { border-color: #65AB9B; }
         QComboBox QAbstractItemView { background: white; selection-background-color: #E1F3ED; color: #243C50; }
         QTableWidget { background: white; alternate-background-color: #FAFCFE; gridline-color: #EEF2F6; selection-background-color: #E7F3F8; selection-color: #163D57; outline: none; }
+        QTableWidget::item { padding: 7px 6px; }
         QHeaderView::section { background: #F2F6FA; color: #587087; border: none; border-right: 1px solid #E8EEF4; padding: 11px 7px; font-weight: 500; }
         #tableHint { color: #7A8FA2; font-size: 11px; }
-        #detailText { background: #FAFCFE; border: 1px solid #E8EEF3; border-radius: 5px; padding: 8px; }
         QScrollArea { background: #F2F6FA; border: 1px solid #E8EEF3; border-radius: 5px; }
         QProgressBar { border: none; background: #E4ECEF; }
         QProgressBar::chunk { background: #26A88C; }
-        QSplitter::handle { background: transparent; }
+        QSplitter::handle { background: #DCE5ED; }
+        QSplitter::handle:hover { background: #8DB9C7; }
     """)

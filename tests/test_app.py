@@ -50,6 +50,9 @@ def test_only_acceptance_is_editable(application, tmp_path):
     assert window.results[0].issues[0].acceptance == "是"
     window.table.item(0, 6).setText("非法选项")
     assert window.table.item(0, 6).text() == "是"
+    window.table.item(0, 6).setText("部分接受")
+    assert window.table.item(0, 6).text() == "是"
+    assert window.acceptance_filter.findText("部分接受") == -1
     assert window.dirty
     window.acceptance_filter.setCurrentText("否")
     assert window.table.isRowHidden(0)
@@ -93,7 +96,7 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
     assert all(not result.error for result in window.results)
     assert not window.dirty  # extraction alone does not trigger a discard prompt
     window.file_list.setCurrentRow(0)
-    window.table.item(0, 6).setText("部分接受")
+    window.table.item(0, 6).setText("是")
     window.export()
     wait_for_worker(window)
     assert not errors
@@ -105,7 +108,7 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
         workbook = load_workbook(path)
         sheet = workbook["评审汇总"]
         assert sheet.max_column == 10
-        assert sheet["G2"].value == ("部分接受" if source == files[0] else None)
+        assert sheet["G2"].value == ("是" if source == files[0] else None)
         workbook.close()
         assert source.read_bytes() == originals[source]
     window.clear_files()

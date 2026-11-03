@@ -65,12 +65,12 @@ def export_result(result, output_dir):
     try:
         for row, issue in enumerate(result.issues, 2):
             if issue.acceptance not in ACCEPTANCE:
-                raise ValueError("是否接受只能填写：是、否、部分接受、重复，或留空。")
+                raise ValueError("是否接受只能填写：是、否、重复，或留空。")
             for column, value in enumerate(issue.values(result.source.name), 1):
                 set_text(summary.cell(row, column), value)
-        validation = DataValidation(type="list", formula1='"是,否,部分接受,重复"', allow_blank=True)
+        validation = DataValidation(type="list", formula1='"' + ",".join(ACCEPTANCE[1:]) + '"', allow_blank=True)
         validation.errorTitle = "请选择接受情况"
-        validation.error = "请选择：是、否、部分接受、重复；也可以留空。"
+        validation.error = "请选择：是、否、重复；也可以留空。"
         validation.showErrorMessage = True
         validation.errorStyle = "stop"
         summary.add_data_validation(validation)

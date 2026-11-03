@@ -34,6 +34,7 @@ if __name__ == "__main__":
             assert workbook.sheetnames == ["评审汇总", "提取报告"]
             sheet = workbook["评审汇总"]
             assert sheet.max_column == 10
+            assert list(sheet.data_validations.dataValidation)[0].formula1 == '"是,否,重复"'
             issues += sheet.max_row - 1
             for row in sheet.iter_rows(min_row=2):
                 assert row[6].value in (None, "")

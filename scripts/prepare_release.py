@@ -34,7 +34,9 @@ def prepare_release(root):
     notes = dist / f"release-v{version}.md"
     notes.write_text(section.group(1).strip() + "\n\n"
                      "下载 Windows x64 ZIP，完整解压后运行 CommentExtractor.exe。"
-                     "源代码及许可文件随版本提供，SHA256SUMS.txt 用于核对压缩包。\n", encoding="utf-8")
+                     "源代码及许可文件随版本提供，SHA256SUMS.txt 用于核对压缩包。\n\n"
+                     f"使用说明：[简明使用说明](https://github.com/puqu123/CommentExtractor/blob/v{version}/USAGE.md)"
+                     "，免安装包内也附有 USAGE.txt。\n", encoding="utf-8")
     return dict(version=version, binary=str(binary), source=str(source), checksums=str(checksums), notes=str(notes))
 
 

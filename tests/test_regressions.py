@@ -6,11 +6,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from openpyxl import load_workbook
-from PySide6.QtCore import QFileInfo, QTimer
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QInputDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QInputDialog, QDialog, QPlainTextEdit
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtTest import QTest
 
 from commentextract.app import MainWindow
-from commentextract.dialogs import file_dialog
+from commentextract.dialogs import choose_files
 from commentextract.excel import cell_range
 from commentextract.extract import extract_file
 from commentextract.export import export_result
@@ -42,7 +43,17 @@ def test_excel_merged_address_and_long_content_remain_traceable(tmp_path, thread
     window.add_result(result)
     assert window.table.item(0, 3).text().endswith(".....")
     assert len(window.table.item(0, 3).text()) < len(content)
-    assert content in window.detail.toPlainText()
+    window.show()
+    item = window.table.item(0, 3)
+    window.table.scrollToItem(item)
+    notices[0].processEvents()
+    point = window.table.visualItemRect(item).center()
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, Qt.NoModifier, point)
+    QTest.mouseDClick(window.table.viewport(), Qt.LeftButton, Qt.NoModifier, point)
+    reader = window.findChild(QDialog, "cellTextDialog")
+    assert reader.findChild(QPlainTextEdit).toPlainText() == content
+    assert reader.findChild(QPlainTextEdit).isReadOnly()
+    reader.close()
     window.search.setText("全文末尾可搜索")
     assert not window.table.isRowHidden(0)
     workbook = load_workbook(export_result(result, tmp_path / "out"))
@@ -148,7 +159,7 @@ def test_single_write_failure_does_not_stop_batch(tmp_path, notices, monkeypatch
     window.close()
 
 
-def test_five_file_merge_uses_real_directory_dialog_and_source_column(tmp_path, notices, monkeypatch):
+def test_five_file_merge_uses_native_directory_api_and_source_column(tmp_path, notices, monkeypatch):
     window = MainWindow()
     files = [make_word(tmp_path / f"A_rev by {i}.docx") for i in range(5)]
     for source in files:
@@ -162,18 +173,14 @@ def test_five_file_merge_uses_real_directory_dialog_and_source_column(tmp_path, 
     output = tmp_path / "合并导出"
     output.mkdir()
 
-    def select_directory(parent, title):
-        dialog = file_dialog(parent, title, directory=True)
-        assert dialog.testOption(QFileDialog.DontUseNativeDialog)
-        assert dialog.testOption(QFileDialog.DontUseCustomDirectoryIcons)
-        assert not dialog.iconProvider().icon(QFileInfo(str(output))).isNull()
-        assert not dialog.iconProvider().icon(QFileInfo(str(output.anchor))).isNull()
-        dialog.setDirectory(str(output))
-        QTimer.singleShot(150, dialog.accept)
-        assert dialog.exec()
-        return dialog.selectedFiles()[0]
+    def select_directory(parent, title, directory, options):
+        assert parent is window
+        assert title == "选择输出目录"
+        assert options == QFileDialog.ShowDirsOnly
+        assert not options & QFileDialog.DontUseNativeDialog
+        return str(output)
 
-    monkeypatch.setattr("commentextract.app.choose_directory", select_directory)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", select_directory)
     window.export()
     wait_for_worker(window)
     assert len(window.output_paths) == 1
@@ -185,4 +192,51 @@ def test_five_file_merge_uses_real_directory_dialog_and_source_column(tmp_path, 
     assert "G2:G6" in str(list(sheet.data_validations.dataValidation)[0].sqref)
     assert "!G:G" in workbook["提取报告"]["B4"].value
     workbook.close()
+    window.close()
+
+
+def test_native_multiselect_preserves_all_files_and_cancel(notices, monkeypatch):
+    files = ["C:/reviews/A.docx", "C:/reviews/B.xlsx", "C:/reviews/C.pptx"]
+    calls = []
+
+    def select(parent, title, directory, filters):
+        calls.append(filters)
+        return (files if len(calls) == 1 else []), filters
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileNames", select)
+    assert choose_files(None) == files
+    assert all(ext in calls[0] for ext in ("*.docx", "*.xlsx", "*.pptx"))
+    assert choose_files(None) == []
+
+
+def test_many_merge_warnings_cannot_collapse_table_at_minimum_window_size(tmp_path, notices):
+    from commentextract.models import Comment, Extraction, Issue
+    from PySide6.QtWidgets import QHeaderView
+    window = MainWindow()
+    window.resize(1100, 720)
+    result = Extraction(tmp_path / "合并方案.review", sources=[tmp_path / f"review-{i}.pptx" for i in range(5)])
+    result.issues = [Issue(f"R{i:04d}", Comment(str(i), "评审人", "请核对单位。"), source=result.sources[i % 5])
+                     for i in range(20)]
+    result.warnings = [f"review-{i}.pptx：这是较长的格式提示，用来确认提示不会挤占评审表格。" for i in range(100)]
+    window.add_result(result)
+    window.show()
+    notices[0].processEvents()
+    assert not hasattr(window, "detail")
+    assert window.table.viewport().height() >= 250
+    assert window.table.rowAt(100) >= 0
+    opinion_column = HEADERS.index("评审意见")
+    assert window.table.columnViewportPosition(opinion_column) + window.table.columnWidth(opinion_column) <= window.table.viewport().width()
+    assert window.message.height() <= window.message.fontMetrics().height() * 2
+    assert window.table.verticalHeader().isVisible()
+    assert window.table.verticalHeader().sectionResizeMode(0) == QHeaderView.Interactive
+    header = window.table.verticalHeader()
+    surface = header.viewport()
+    before = header.sectionSize(0)
+    start = QPoint(surface.width() // 2, header.sectionViewportPosition(0) + before - 2)
+    end = start + QPoint(0, 65)
+    QTest.mousePress(surface, Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mouseMove(surface, end, 30)
+    QTest.mouseRelease(surface, Qt.LeftButton, Qt.NoModifier, end)
+    assert header.sectionSize(0) > before + 40
+    assert "review-99.pptx" in window.report_text()
     window.close()

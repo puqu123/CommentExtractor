@@ -10,13 +10,14 @@ from PySide6.QtCore import Qt, QThread, Signal, QUrl, QItemSelectionModel
 from PySide6.QtGui import QDesktopServices, QFont, QPainter, QColor
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QInputDialog, QListWidgetItem,
-    QMainWindow, QMessageBox, QTableWidgetItem, QTextEdit, QVBoxLayout,
+    QMainWindow, QMessageBox, QTableWidgetItem, QTextEdit, QPlainTextEdit,
+    QPushButton, QVBoxLayout,
     QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 
 from . import __version__
 from .extract import extract_file
-from .models import ACCEPTANCE, ACCEPTANCE_COLUMN, CONTEXT_COLUMN
+from .models import ACCEPTANCE, ACCEPTANCE_COLUMN, CONTEXT_COLUMN, HEADERS
 from .merge import merge_results, suggest_group_name
 from .ui import build_ui, app_icon
 from .dialogs import choose_files, choose_directory
@@ -38,7 +39,7 @@ class AcceptanceDelegate(QStyledItemDelegate):
         value = index.data() or ""
         background, foreground = {
             "": ("#F0F4F8", "#7D8FA2"), "是": ("#E2F5ED", "#127759"),
-            "否": ("#FCEDEA", "#B85447"), "部分接受": ("#FFF3D9", "#98701C"),
+            "否": ("#FCEDEA", "#B85447"),
             "重复": ("#EDEDF7", "#716B92"),
         }.get(value, ("#F0F4F8", "#7D8FA2"))
         box = option.rect.adjusted(8, 0, -8, 0)
@@ -122,7 +123,7 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self.cancel)
         self.file_list.currentRowChanged.connect(self.show_result)
         self.file_list.itemSelectionChanged.connect(self.update_counts)
-        self.table.itemSelectionChanged.connect(self.show_detail)
+        self.table.cellDoubleClicked.connect(self.open_cell_text)
         self.table.itemChanged.connect(self.item_changed)
         self.search.textChanged.connect(self.filter_rows)
         self.acceptance_filter.currentTextChanged.connect(self.filter_rows)
@@ -266,6 +267,7 @@ class MainWindow(QMainWindow):
             sources = result.sources or [result.source]
             lines.append(f"{result.source.name}：{result.error or str(len(result.issues)) + ' 条意见'}")
             lines.extend("  来源：" + str(p) for p in sources)
+            lines.extend("  提示：" + warning for warning in dict.fromkeys(result.warnings))
         return "\n\n".join(lines)
 
     def show_report(self):
@@ -291,7 +293,6 @@ class MainWindow(QMainWindow):
     def show_result(self, _index=None):
         self.loading = True
         self.table.setRowCount(0)
-        self.detail.clear()
         result = self.current_result()
         self.file_title.setText((result.source.stem if result.sources else result.source.name) if result else "等待添加文件")
         self.file_title.setToolTip(str(result.source) if result else "")
@@ -300,13 +301,20 @@ class MainWindow(QMainWindow):
             for row, issue in enumerate(result.issues):
                 for column, value in enumerate(issue.values(result.source.name)):
                     item = QTableWidgetItem(content_preview(str(value)) if column == CONTEXT_COLUMN else str(value))
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
                     item.setToolTip(str(value))
                     if column != ACCEPTANCE_COLUMN:
                         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(row, column, item)
-            notices = [result.error] if result.error else result.warnings
-            self.message.setText("\n".join(notices) if notices else (
-                "未发现批注。" if not result.issues else "提取内容只读。“是否接受”可选是、否、部分接受或重复；重复行保留，统计时只计一次。"))
+            notices = [result.error] if result.error else list(dict.fromkeys(result.warnings))
+            if result.error:
+                message = "提取失败，具体原因见“处理记录”。"
+            elif notices:
+                message = f"本文件／合并组有 {len(notices)} 项提取提示，完整说明见“处理记录”。"
+            else:
+                message = "未发现批注。" if not result.issues else "提取字段只读；“是否接受”可填写，也可以留空导出。"
+            self.message.setText(message)
+            self.message.setToolTip("\n".join(notices))
         self.loading = False
         self.filter_rows()
         if result and result.issues:
@@ -349,16 +357,28 @@ class MainWindow(QMainWindow):
         item.setToolTip(value)
         self.update_counts()
         self.filter_rows()
-        self.show_detail()
 
-    def show_detail(self):
-        issue = self.selected_issue()
-        if not issue:
+    def open_cell_text(self, row, column):
+        result = self.current_result()
+        if not result or not 0 <= row < len(result.issues) or column == ACCEPTANCE_COLUMN:
             return
-        self.detail.setPlainText(
-            f"{issue.id} · {issue.root.location}\n文件名：{(issue.source or self.current_result().source).name}\n\n对应内容\n{issue.root.context or '未记录明确对应原文'}"
-            f"\n\n评审人：{issue.root.author or '未署名'}\n{issue.root.text}"
-            f"\n\n是否接受：{issue.acceptance or '待填写'}\n\n回复\n{issue.values()[8] or '暂无回复'}")
+        if not 0 <= column < len(HEADERS):
+            return
+        issue = result.issues[row]
+        dialog = QDialog(self)
+        dialog.setObjectName("cellTextDialog")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.setWindowTitle(f"{HEADERS[column]} · {issue.id} · {(issue.source or result.source).name}")
+        dialog.resize(820, 520)
+        layout = QVBoxLayout(dialog)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(str(issue.values(result.source.name)[column]))
+        layout.addWidget(text)
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(dialog.close)
+        layout.addWidget(close_button, alignment=Qt.AlignRight)
+        dialog.open()
 
     def export(self):
         results = [r for r in self.results if not r.error]

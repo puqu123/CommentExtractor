@@ -7,7 +7,7 @@ from typing import List, Optional
 HEADERS = ["意见编号", "文件名", "位置", "对应原文／内容", "评审人", "评审意见", "是否接受", "回复人", "回复内容", "上下文截图"]
 ACCEPTANCE_COLUMN = HEADERS.index("是否接受")
 CONTEXT_COLUMN = HEADERS.index("对应原文／内容")
-ACCEPTANCE = ("", "是", "否", "部分接受", "重复")
+ACCEPTANCE = ("", "是", "否", "重复")
 
 
 @dataclass

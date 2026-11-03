@@ -12,7 +12,7 @@ from .samples import make_word
 
 def test_export_schema_validation_and_unique_names(tmp_path):
     result = extract_file(make_word(tmp_path / "来源.docx"))
-    result.issues[0].acceptance = "部分接受"
+    result.issues[0].acceptance = "是"
     before = result.source.read_bytes()
     path = export_result(result, tmp_path / "output")
     second = export_result(result, tmp_path / "output")
@@ -24,10 +24,10 @@ def test_export_schema_validation_and_unique_names(tmp_path):
     sheet = workbook["评审汇总"]
     assert [c.value for c in sheet[1]] == HEADERS
     assert sheet.max_column == 10
-    assert sheet["G2"].value == "部分接受"
+    assert sheet["G2"].value == "是"
     assert sheet.freeze_panes == "A2"
     validation = list(sheet.data_validations.dataValidation)[0]
-    assert validation.formula1 == '"是,否,部分接受,重复"'
+    assert validation.formula1 == '"是,否,重复"'
     assert validation.showErrorMessage
     assert "答复人乙" in sheet["I2"].value
     assert "补充测试环境和并发数量" in sheet["I2"].value
