@@ -6,9 +6,9 @@ Windows 本地离线桌面工具，将 Word、Excel、PowerPoint 中的标准批
 
 ## 下载使用
 
-无需安装 Python 或 Office。到 [Releases](https://github.com/puqu123/CommentExtractor/releases) 下载 Windows x64 免安装 ZIP，
-完整解压后双击 `CommentExtractor.exe`。请保留同目录的 `_internal` 文件夹。
-v0.2.1 旧包内的程序名称仍为 `CommentExtract.exe`；从 v0.2.2 起统一使用 CommentExtractor。
+无需安装 Python 或 Office。下载 [v0.2.5 Windows x64 免安装包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.5/CommentExtractor-v0.2.5-win64.zip)，
+完整解压后双击 `CommentExtractor.exe`，保留同目录的 `_internal` 文件夹。
+选择文件名以 `-win64.zip` 结尾的安装包；`-source.zip` 是源码包。其他版本见 [Releases](https://github.com/puqu123/CommentExtractor/releases)。
 
 当前版本为 **v0.2.5 预发布版**，评审表格占据主要区域，移除常驻详情面板，支持拖动行高／列宽和双击查看单元格全文。保留 Windows 原生文件／文件夹选择窗口。格式支持范围见下表。
 
@@ -22,31 +22,23 @@ v0.2.1 旧包内的程序名称仍为 `CommentExtract.exe`；从 v0.2.2 起统�
 
 完整操作见 [简明使用说明](USAGE.md)。免安装包内同时附有 `USAGE.txt`，可直接双击阅读。
 
-## 开发运行
-
-Python 3.9–3.13，Windows x64。当前在 Python 3.9 环境验证。
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe run_app.py
-```
+## 阅读与填写
 
 桌面端支持拖放文件或文件夹、后台批量提取、文字筛选和批量导出。
 Excel 位置显示为“检查表 · B2”，合并单元格显示为“检查表 · B2:D3”。长原文在列表中以 `.....` 缩略，双击对应单元格可查看／复制全文，导出保留全文。
 拖动表头边界调整列宽，拖动表头调整显示顺序，拖动左侧行号边界调整行高；拖动文件列表与表格之间的分隔条调整两侧宽度。界面调整不改变导出字段顺序。
 界面默认将评审人、评审意见、是否接受和回复放在前面，文件名／位置／原文可横向查看，避免小窗口里看不到评审意见。Excel 导出仍沿用既定字段顺序。
 格式提示仅占一行，完整说明位于“处理记录”，不会随合并文件增多挤占表格。
-对应原文、评审人、评审意见、回复等提取内容全部只读，忠实保留源文件内容。
+对应原文、评审人、评审意见、回复等提取内容在程序中只读。
 仅“是否接受”可以人工选择是、否、重复；可以留空直接导出，后续在 Excel 中填写。
-不提供编辑回复、添加回答或保存项目功能。
+程序不保存项目或工作进度，填写接受情况后请先导出，再关闭或清空列表。
 
 ## 多文件批量导出
 
 1. 点击“添加文件”，在同一个文件夹中按 Ctrl 或 Shift 选择任意组合的 Word、Excel、PPT 文件。
 2. 也可以点击“文件夹”导入该目录及子目录中的全部受支持文件，或直接拖入多个文件／文件夹。
 3. 提取完成后，可按需填写“是否接受”，无需逐条确认即可导出。
-4. 点击“批量导出 Excel”，选择一次输出目录，每个成功提取的源文件生成一份独立 Excel。
+4. 点击“导出 N 份 Excel”，选择一次输出目录，每个成功提取的文件或合并组生成一份 Excel。
 
 程序没有设置 5 个或 6 个文件的数量上限，实际容量取决于内存和文件大小；已验证 12 份同名文件独立导出。
 列表会保留提取失败的文件，导入时提示跳过／失败原因；导出完成报告计划数、成功数、失败数、未处理数。
@@ -54,6 +46,7 @@ Excel 位置显示为“检查表 · B2”，合并单元格显示为“检查�
 
 不同评审人的主意见分别保留为独立行，各自关联源文件中已有的回复，不按姓名合并意见。
 源文件更新或需要换一批文件时点击“清空列表”重新导入。
+没有可读取批注的文件仍可导出空汇总表，并在“提取报告”中注明；提取失败的文件不会导出为空表。
 
 ## 同一文档收到多份 peer review
 
@@ -67,6 +60,7 @@ Excel 位置显示为“检查表 · B2”，合并单元格显示为“检查�
 汇总表为 10 列，新增“文件名”列，每行显示实际来源的评审返回文件（含扩展名）。重复行不删除，保留另一位评审人的记录；“提取报告”通过公式统计重复数和去除重复后的意见数，打开 Excel 时计算。
 因此无论“是否接受”在工具里还是 Excel 中填写，重复标记都能参与后续统计。未标记的相似意见不会擅自扣除。
 各条意见的完整来源路径也记录在“提取报告”中，方便核对同名文件。
+界面中的“有效意见”及报告中的去重数量 = 主意见总数 − 标记为“重复”的数量；它们包含“是”“否”和未填写的意见，并非接受数。
 
 ## 导出表格
 
@@ -91,33 +85,40 @@ Excel 位置显示为“检查表 · B2”，合并单元格显示为“检查�
 | `.pptx` | 传统／现代批注、现代回复、幻灯片顺序 | 暂无对象原文定位、幻灯片渲染和截图；传统批注无明确回复关系时作为独立意见 |
 
 不支持旧版 `.doc/.xls/.ppt`，请先另存为新格式。
-初版使用人工构造样例验证；Office、WPS 等生成的真实文件仍需逐批核对，尤其是现代批注扩展。
+v0.2.5 已通过 28 项自动检查及 Windows 打包程序的导出／启动验证；构造样例不能代替 Office、WPS 等真实文件的兼容性验证，尤其是现代批注扩展。
 PDF 已移出需求范围，解析库和页面预览代码已移除。
+大文件仍受内存限制；Office 压缩包内单个部件解压后超过 128 MiB 时，当前版本会报告不支持。这不是整个源文件大小的上限。
 
 ## 署名准备
 
 评审前在 Office 的“文件 → 选项 → 常规”设置本人用户名；现代账户型评论需检查登录账户显示名。
 新建批注及回复后保存、关闭、重开，确认署名正确。修改默认设置不会自动修复历史错误署名。
 
-## 命令行
+## 开发运行
+
+已验证的开发环境为 Windows x64、Python 3.9.13；其他 Python 版本尚未验证。使用免安装包时不需要 Python。
 
 ```powershell
-.\.venv\Scripts\python.exe -m commentextract.cli .\local_data\demo -o .\output
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe run_app.py
 ```
 
-文件夹递归处理会跳过输出目录、Office 临时文件和经表头验证的本工具导出表，并报告原因。仅文件名含 `_评审意见` 的原始文档不会被直接排除。
-
-## 测试与虚构样例
+### 命令行与测试样例
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe scripts\make_samples.py
+.\.venv\Scripts\python.exe -m commentextract.cli .\local_data\demo -o .\output
+.\.venv\Scripts\python.exe -m pytest -q
 ```
+
+命令行会跳过输出目录内的输入文件、Office 临时文件和经表头验证的本工具导出表，并报告原因；输出目录请选在输入目录之外。
+仅文件名含 `_评审意见` 的原始文档不会被直接排除。命令行在终端显示结果；桌面版另有“处理记录”和批量结果 TXT。
 
 样例生成在 `local_data/demo`，包括六份 Office 虚构文件，不使用真实评审数据。
 真实文件也请放在 `local_data`，该目录已被 Git 忽略。公开前仍应检查待提交文件列表。
 
-## Windows 免安装打包
+### Windows 免安装打包
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
@@ -129,7 +130,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 未处理的界面异常会弹出提示，错误日志保存在 `%LOCALAPPDATA%\CommentExtractor\logs\app.log`。
 程序不自更新、不上传文档。企业电脑是否允许运行取决于终端管理策略。
 
-## 后续版本发布
+### 后续版本发布
 
 修改 `commentextract/__init__.py` 和 `pyproject.toml` 中的版本号，更新 `CHANGELOG.md` 并提交代码后，可以继续让 Codex 发布。
 已有 GitHub CLI 凭据有效时无需重复设备授权。也可以自己运行脚本：
