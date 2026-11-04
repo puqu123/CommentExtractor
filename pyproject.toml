@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "commentextractor"
-version = "0.2.5"
+version = "0.2.6"
 description = "Offline Office review comment extraction desktop tool"
 requires-python = ">=3.9"
 license = "AGPL-3.0-only"
@@ -27,7 +27,7 @@ commentextractor-cli = "commentextract.cli:main"
 include = ["commentextract*"]
 
 [tool.setuptools.package-data]
-commentextract = ["assets/*.svg", "assets/*.png", "assets/*.ico"]
+commentextract = ["assets/*.svg", "assets/*.png", "assets/*.ico", "assets/*.ps1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

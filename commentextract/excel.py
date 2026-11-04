@@ -18,30 +18,52 @@ def cell_range(ref):
 
 def read_excel(path, warnings):
     result = []
-    with Package(path) as package:
+    with Package(path, warnings) as package:
         workbook = package.xml("xl/workbook.xml")
         rels = package.rels("xl/workbook.xml")
         shared = []
-        if "xl/sharedStrings.xml" in package.names:
-            shared = [text(node) for node in elements(package.xml("xl/sharedStrings.xml"), "si")]
+        shared_parts = [target for kind, target in rels.values() if kind.lower() == "sharedstrings"]
+        if not shared_parts and "xl/sharedStrings.xml" in package.names:
+            shared_parts = ["xl/sharedStrings.xml"]
+        if shared_parts:
+            try:
+                shared = [text(node) for node in elements(package.xml(shared_parts[0]), "si")]
+            except Exception as exc:
+                warnings.append(f"共享字符串表无法读取：{type(exc).__name__}：{exc}；继续提取批注，对应单元格内容可能缺失。")
         people = {}
-        for part in sorted(package.names):
-            if part.startswith("xl/persons/") and part.endswith(".xml"):
+        person_parts = {target for kind, target in rels.values() if kind.lower() in {"person", "persons"}}
+        person_parts.update(part for part in package.names if part.startswith("xl/persons/") and part.endswith(".xml"))
+        for part in sorted(person_parts):
+            try:
                 for person in elements(package.xml(part), "person"):
                     people[attr(person, "id")] = attr(person, "displayName")
+            except Exception as exc:
+                warnings.append(f"作者表无法读取 {part}：{type(exc).__name__}：{exc}；无法识别的姓名留空。")
         for sheet in elements(workbook, "sheet"):
             rid = attr(sheet, "id")
             if rid not in rels:
                 continue
             part = rels[rid][1]
             cells = {}
-            sheet_xml = package.xml(part)
+            try:
+                sheet_xml = package.xml(part)
+            except Exception as exc:
+                warnings.append(f"工作表内容无法读取 {part}：{type(exc).__name__}：{exc}；批注仍保留，对应内容留空。")
+                from xml.etree.ElementTree import Element
+                sheet_xml = Element("worksheet")
             merged = [cell_range(attr(node, "ref")) for node in elements(sheet_xml, "mergeCell")]
             for cell in elements(sheet_xml, "c"):
                 values = elements(cell, "v")
                 raw = values[0].text or "" if values else ""
                 if cell.get("t") == "s":
-                    raw = shared[int(raw)] if raw else ""
+                    try:
+                        index = int(raw)
+                        if not 0 <= index < len(shared):
+                            raise IndexError(index)
+                        raw = shared[index]
+                    except (ValueError, IndexError):
+                        raw = ""
+                        warnings.append(f"{attr(sheet, 'name')} · {cell.get('r', '')}：共享字符串索引无效，单元格内容留空，批注仍保留。")
                 elif cell.get("t") == "inlineStr":
                     raw = text(cell)
                 elif not raw:
@@ -54,7 +76,11 @@ def read_excel(path, warnings):
                 if not ref:
                     warnings.append(f"{attr(sheet, 'name')}：有批注未记录单元格地址。")
                     return f"{attr(sheet, 'name')} · 位置未记录", ""
-                address, bounds = cell_range(ref)
+                try:
+                    address, bounds = cell_range(ref)
+                except (ValueError, TypeError):
+                    warnings.append(f"{attr(sheet, 'name')}：批注单元格地址无效（{ref}），保留意见，位置待核对。")
+                    return f"{attr(sheet, 'name')} · 位置未确定（{ref}）", ""
                 left, top, right, bottom = bounds
                 if left == right and top == bottom:
                     for merged_ref, merged_bounds in merged:
@@ -112,8 +138,14 @@ def read_excel(path, warnings):
                     # Modern Excel embeds compatibility placeholders in legacy comments.
                     if ref in threaded_cells and "[Threaded comment]" in content:
                         continue
-                    author_id = int(attr(node, "authorId", "0"))
-                    author = authors[author_id] if author_id < len(authors) else ""
+                    try:
+                        author_id = int(attr(node, "authorId", ""))
+                        if not 0 <= author_id < len(authors):
+                            raise IndexError(author_id)
+                        author = authors[author_id]
+                    except (ValueError, IndexError):
+                        author = ""
+                        warnings.append(f"{attr(sheet, 'name')} · {ref}：批注作者编号无效或缺少作者表，姓名留空，意见保留。")
                     location, context = anchor(ref)
                     result.append(Comment(target + "#" + str(index), author, content,
                                           location=location, context=context))

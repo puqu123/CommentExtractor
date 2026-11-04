@@ -11,7 +11,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 
-from .models import HEADERS, ACCEPTANCE, ACCEPTANCE_COLUMN
+from .models import HEADERS, ACCEPTANCE, ACCEPTANCE_COLUMN, IMAGE_EXTENSIONS
 
 INVALID_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -68,6 +68,20 @@ def export_result(result, output_dir):
                 raise ValueError("是否接受只能填写：是、否、重复，或留空。")
             for column, value in enumerate(issue.values(result.source.name), 1):
                 set_text(summary.cell(row, column), value)
+            if issue.root.screenshots:
+                assets.mkdir(exist_ok=True)
+                image_names = []
+                for index, image in enumerate(issue.root.screenshots, 1):
+                    extension = Path(image.name).suffix.lower()
+                    if extension not in IMAGE_EXTENSIONS:
+                        extension = ".bin"
+                    attachment = assets / f"截图_{row - 1:04d}_{index:02d}{extension}"
+                    attachment.write_bytes(image.data)
+                    created_assets.append(attachment)
+                    image_names.append(attachment.name)
+                cell = summary.cell(row, HEADERS.index("上下文截图") + 1)
+                set_text(cell, "\n".join(image_names) + "\n〔点击打开附件文件夹〕")
+                cell.hyperlink = quote(assets.relative_to(output_dir).as_posix() + "/", safe="/")
         validation = DataValidation(type="list", formula1='"' + ",".join(ACCEPTANCE[1:]) + '"', allow_blank=True)
         validation.errorTitle = "请选择接受情况"
         validation.error = "请选择：是、否、重复；也可以留空。"
@@ -78,7 +92,9 @@ def export_result(result, output_dir):
         validation.add(f"{acceptance_letter}2:{acceptance_letter}{max(2, summary.max_row)}")
         report = workbook.create_sheet("提取报告")
         report.append(["项目", "结果"])
-        report.append(["处理结果", "提取完成" if result.issues else "未发现可读取批注"])
+        partial = any(w.startswith("部分提取：") for w in warnings)
+        status = "部分提取（存在未读取部件，请核对）" if partial else ("提取完成（有提示，请核对完整性）" if warnings else "提取完成")
+        report.append(["处理结果", status if result.issues else "未发现可读取批注"])
         report.append(["主意见数量", len(result.issues)])
         report.append(["重复意见数量", f'=COUNTIF(\'评审汇总\'!{acceptance_letter}:{acceptance_letter},"重复")'])
         report.append(["去除已标记重复的意见数量", "=B3-B4"])
@@ -88,7 +104,7 @@ def export_result(result, output_dir):
         report.append(["回复数量", result.comment_count - len(result.issues)])
         report.append(["使用说明", "是否接受留空待填写；同一问题首次计入意见，后续相同意见人工标记为重复。回复人仅表示回复作者。"])
         report.append(["统计说明", "重复数和去重后的数量使用公式，Excel 打开后自动计算；同一问题后续各行标记为重复，首次出现的行保留原接受情况。"])
-        report.append(["附件说明", "如有 TXT，请将 Excel 和同名附件目录一起移动。上下文截图列为兼容既有表格保留，当前版本留空。"])
+        report.append(["附件说明", "如有 TXT 或截图，请将 Excel 和同名附件目录一起移动。开发评审 Word 的截图按意见顺序保存在附件目录，点击上下文截图单元格可打开文件夹。标准批注不生成截图。"])
         for warning in dict.fromkeys(warnings):
             report.append(["提示", ""])
             set_text(report.cell(report.max_row, 2), warning)

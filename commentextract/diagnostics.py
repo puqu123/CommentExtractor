@@ -21,8 +21,12 @@ def install_exception_handler(parent):
 
     def on_exception(kind, value, trace):
         logger.error("Desktop exception", exc_info=(kind, value, trace))
+        from .support import exception_details
+        detail = exception_details(value)
+        parent.diagnostic_events.append({"phase": "ui", "error": detail})
+        parent.report_button.setEnabled(True)
         from PySide6.QtWidgets import QMessageBox
         suffix = f"\n错误记录：{logfile}" if logfile else ""
-        QMessageBox.critical(parent, "操作未完成", f"{kind.__name__}：{value}{suffix}")
+        QMessageBox.critical(parent, "操作未完成", f"[{detail['code']}] {kind.__name__}：{value}{suffix}\n可在“处理记录 → 脱敏诊断”复制不含文档内容的技术报告。")
 
     sys.excepthook = on_exception

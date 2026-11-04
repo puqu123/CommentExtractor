@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections import Counter
+from dataclasses import replace
 from typing import List, Optional
 
 HEADERS = ["意见编号", "文件名", "位置", "对应原文／内容", "评审人", "评审意见", "是否接受", "回复人", "回复内容", "上下文截图"]
 ACCEPTANCE_COLUMN = HEADERS.index("是否接受")
 CONTEXT_COLUMN = HEADERS.index("对应原文／内容")
 ACCEPTANCE = ("", "是", "否", "重复")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".emf", ".wmf", ".ico"}
+
+
+@dataclass
+class Screenshot:
+    name: str
+    data: bytes
+    ocr_text: str = ""
 
 
 @dataclass
@@ -18,6 +28,7 @@ class Comment:
     parent_id: Optional[str] = None
     location: str = ""
     context: str = ""
+    screenshots: List[Screenshot] = field(default_factory=list)
 
 
 @dataclass
@@ -33,7 +44,8 @@ class Issue:
         replies = "\n\n".join(f"{i}. {c.author or '未署名'}：{c.text}" for i, c in enumerate(self.replies, 1))
         return [self.id, self.source.name if self.source else filename,
                 self.root.location, self.root.context, self.root.author,
-                self.root.text, self.acceptance, "、".join(authors), replies, ""]
+                self.root.text, self.acceptance, "、".join(authors), replies,
+                "\n".join(image.name for image in self.root.screenshots)]
 
 
 @dataclass
@@ -43,6 +55,7 @@ class Extraction:
     warnings: List[str] = field(default_factory=list)
     error: str = ""
     sources: List[Path] = field(default_factory=list)
+    diagnostics: dict = field(default_factory=dict)
 
     @property
     def comment_count(self) -> int:
@@ -51,11 +64,28 @@ class Extraction:
 
 def group_comments(comments: List[Comment], warnings: List[str]) -> List[Issue]:
     """Group only explicit parent links; preserve XML/page order within threads."""
-    by_id = {}
-    for comment in comments:
-        if comment.id in by_id:
-            raise ValueError(f"批注编号重复，无法可靠关联：{comment.id}")
-        by_id[comment.id] = comment
+    # Invalid IDs must not discard a whole file or silently attach replies to
+    # whichever duplicate happened to appear last. Preserve every occurrence.
+    counts = Counter(c.id for c in comments)
+    ambiguous = {cid for cid, count in counts.items() if count > 1}
+    reserved = set(counts)
+    normalized = []
+    for index, comment in enumerate(comments, 1):
+        cid, parent = comment.id, comment.parent_id
+        if cid in ambiguous:
+            candidate = f"{cid}#recovered-{index}"
+            while candidate in reserved:
+                candidate += "_"
+            reserved.add(candidate)
+            cid = candidate
+        if parent in ambiguous:
+            parent = None
+            warnings.append("回复指向重复的批注编号，无法确定所属意见，已作为独立意见保留。")
+        normalized.append(replace(comment, id=cid, parent_id=parent))
+    if ambiguous:
+        warnings.append(f"发现 {len(ambiguous)} 组重复批注编号，已重新编号并保留全部内容；请核对回复关系。")
+    comments = normalized
+    by_id = {comment.id: comment for comment in comments}
     roots = {}
     for comment in comments:
         current = comment

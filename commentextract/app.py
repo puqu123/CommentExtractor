@@ -11,7 +11,7 @@ from PySide6.QtGui import QDesktopServices, QFont, QPainter, QColor
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QInputDialog, QListWidgetItem,
     QMainWindow, QMessageBox, QTableWidgetItem, QTextEdit, QPlainTextEdit,
-    QPushButton, QVBoxLayout,
+    QPushButton, QVBoxLayout, QHBoxLayout, QLabel,
     QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 
@@ -22,7 +22,9 @@ from .merge import merge_results, suggest_group_name
 from .ui import build_ui, app_icon
 from .dialogs import choose_files, choose_directory
 from .inputs import collect_files
-from .models import Extraction
+from .models import Extraction, IMAGE_EXTENSIONS
+from .developer_dialog import choose_developer_files
+from .support import exception_details, support_report
 
 
 def content_preview(value):
@@ -72,12 +74,14 @@ class Worker(QThread):
     exported = Signal(str)
     failure = Signal(str)
 
-    def __init__(self, items, output=None, parent=None):
+    def __init__(self, items, output=None, parent=None, options=None):
         super().__init__(parent)
         self.items = list(items)
         self.output = output
         self.records = []
         self.skipped = []
+        self.options = options or {}
+        self.diagnostic_events = []
 
     def run(self):
         for index, item in enumerate(self.items):
@@ -92,14 +96,17 @@ class Worker(QThread):
                     self.exported.emit(target)
                     self.records.append(f"导出成功：{item.source}\n  → {target}")
                 else:
-                    result = extract_file(item)
+                    result = extract_file(item, **self.options)
                     self.item_ready.emit(result)
-                    self.records.append(f"{'提取失败' if result.error else '提取成功'}：{result.source}\n  {result.error or str(len(result.issues)) + ' 条意见'}")
+                    status = '提取失败' if result.error else ('提取完成（有提示，请核对）' if result.warnings else '提取成功')
+                    self.records.append(f"{status}：{result.source}\n  {result.error or str(len(result.issues)) + ' 条意见'}")
             except Exception as exc:
-                self.failure.emit(f"{name}：{exc}")
+                detail = exception_details(exc)
+                self.diagnostic_events.append({"phase": "export" if self.output else "extract", "error": detail})
+                self.failure.emit(f"[{detail['code']}] {name}：{exc}")
                 self.records.append(f"处理失败：{name}\n{traceback.format_exc()}")
                 if not self.output:
-                    self.item_ready.emit(Extraction(Path(item), error=f"{type(exc).__name__}：{exc}"))
+                    self.item_ready.emit(Extraction(Path(item), error=f"[{detail['code']}] {type(exc).__name__}：{exc}", diagnostics={"error": detail}))
             self.progress.emit(index + 1, len(self.items), name)
 
 
@@ -114,9 +121,11 @@ class MainWindow(QMainWindow):
         self.last_output = None
         self.batch_history = []
         self.dirty = False
+        self.diagnostic_events = []
         build_ui(self, AcceptanceDelegate)
         self.add_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
+        self.developer_button.clicked.connect(self.choose_developer)
         self.clear_button.clicked.connect(self.clear_files)
         self.merge_button.clicked.connect(self.merge_files)
         self.export_button.clicked.connect(self.export)
@@ -152,7 +161,7 @@ class MainWindow(QMainWindow):
         self.merge_button.setEnabled(len(self.file_list.selectedIndexes()) >= 2 and not self.busy())
 
     def set_busy(self, busy):
-        for widget in [self.add_button, self.folder_button, self.clear_button, self.merge_button,
+        for widget in [self.add_button, self.folder_button, self.developer_button, self.clear_button, self.merge_button,
                        self.export_button, self.table]:
             widget.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
@@ -169,7 +178,13 @@ class MainWindow(QMainWindow):
         if folder:
             self.add_files([folder])
 
-    def add_files(self, paths):
+    def choose_developer(self):
+        chosen = choose_developer_files(self)
+        if chosen:
+            paths, options = chosen
+            self.add_files(paths, options=options)
+
+    def add_files(self, paths, options=None):
         if self.busy():
             return
         existing = {source for result in self.results for source in (result.sources or [result.source])}
@@ -179,7 +194,7 @@ class MainWindow(QMainWindow):
         if not files:
             QMessageBox.information(self, "没有新文件", "未找到新的受支持文件。\n" + "\n".join(f"{p.name}：{r}" for p, r in skipped))
             return
-        worker = Worker(files, parent=self)
+        worker = Worker(files, parent=self, options=options)
         worker.skipped = skipped
         self.start_worker(worker)
 
@@ -203,6 +218,8 @@ class MainWindow(QMainWindow):
 
     def append_file_item(self, result):
         status = "提取失败" if result.error else f"{len(result.issues)} 条意见 · {result.comment_count - len(result.issues)} 条回复"
+        if not result.error and any(w.startswith("部分提取：") for w in result.warnings):
+            status += " · 部分提取，需核对"
         label = f"{result.source.stem}（{len(result.sources)} 份评审）" if result.sources else result.source.name
         item = QListWidgetItem(label + "\n" + status)
         paths = "\n".join(str(path) for path in result.sources) if result.sources else str(result.source)
@@ -224,6 +241,7 @@ class MainWindow(QMainWindow):
         interrupted = worker.isInterruptionRequested()
         is_export = bool(worker.output)
         self.batch_history.extend(worker.records)
+        self.diagnostic_events.extend(worker.diagnostic_events)
         self.worker = None
         worker.deleteLater()
         self.set_busy(False)
@@ -275,11 +293,55 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("逐文件处理记录")
         dialog.resize(900, 600)
         layout = QVBoxLayout(dialog)
+        note = QLabel("本地处理记录可能包含文件名、路径或原文；对外反馈请使用下方“脱敏诊断”。")
+        note.setWordWrap(True)
+        layout.addWidget(note)
         text = QTextEdit()
         text.setReadOnly(True)
         text.setPlainText(self.report_text())
         layout.addWidget(text)
+        support = QPushButton("脱敏诊断（可复制）")
+        support.clicked.connect(lambda: self.show_support_report(dialog))
+        layout.addWidget(support)
         dialog.exec()
+
+    def show_support_report(self, parent=None):
+        selected = self.current_result()
+        results = [selected] if selected is not None else self.results
+        report = support_report(results, self.diagnostic_events)
+        phase = "正在导出" if self.worker and self.worker.output else ("正在提取" if self.worker else "空闲")
+        report += f"\n界面阶段：{phase}；最近批次进度：{self.progress.value()}/{self.progress.maximum()}。"
+        if selected is not None:
+            report += f"\n当前选中：左侧列表第 {self.file_list.currentRow() + 1} 项（未复制文件名）。"
+        dialog = QDialog(parent or self)
+        dialog.setObjectName("supportReportDialog")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.setWindowTitle("脱敏诊断 · 预览并复制")
+        dialog.resize(850, 650)
+        layout = QVBoxLayout(dialog)
+        note = QLabel("请先预览，按公司规定确认可以传递的技术信息，再复制；程序不会自动发送或上传。")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(report)
+        layout.addWidget(text)
+        actions = QHBoxLayout()
+        feedback = QLabel("")
+        actions.addWidget(feedback, 1)
+        copy = QPushButton("复制诊断报告")
+        copy.setObjectName("copySupportReport")
+
+        def copy_report():
+            QApplication.clipboard().setText(report)
+            feedback.setText("已复制，可粘贴为文字。")
+        copy.clicked.connect(copy_report)
+        actions.addWidget(copy)
+        close = QPushButton("关闭")
+        close.clicked.connect(dialog.close)
+        actions.addWidget(close)
+        layout.addLayout(actions)
+        dialog.open()
 
     def current_result(self):
         index = self.file_list.currentRow()
@@ -297,6 +359,7 @@ class MainWindow(QMainWindow):
         self.file_title.setText((result.source.stem if result.sources else result.source.name) if result else "等待添加文件")
         self.file_title.setToolTip(str(result.source) if result else "")
         if result:
+            self.table.setColumnHidden(9, not any(issue.root.screenshots for issue in result.issues))
             self.table.setRowCount(len(result.issues))
             for row, issue in enumerate(result.issues):
                 for column, value in enumerate(issue.values(result.source.name)):
@@ -375,6 +438,33 @@ class MainWindow(QMainWindow):
         text.setReadOnly(True)
         text.setPlainText(str(issue.values(result.source.name)[column]))
         layout.addWidget(text)
+        if column == HEADERS.index("上下文截图") and issue.root.screenshots:
+            from PySide6.QtCore import QTemporaryDir
+            from PySide6.QtGui import QPixmap
+            from PySide6.QtWidgets import QLabel, QScrollArea, QWidget
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            panel = QWidget()
+            images_layout = QVBoxLayout(panel)
+            temp = QTemporaryDir()
+            dialog.screenshot_temp = temp
+            for index, image in enumerate(issue.root.screenshots, 1):
+                pixmap = QPixmap()
+                pixmap.loadFromData(image.data)
+                label = QLabel(image.name)
+                images_layout.addWidget(label)
+                if not pixmap.isNull():
+                    preview = QLabel()
+                    preview.setPixmap(pixmap.scaledToWidth(720, Qt.SmoothTransformation) if pixmap.width() > 720 else pixmap)
+                    images_layout.addWidget(preview)
+                path = Path(temp.path()) / (str(index) + Path(image.name).suffix)
+                path.write_bytes(image.data)
+                open_image = QPushButton("打开原图 " + str(index))
+                open_image.setEnabled(path.suffix.lower() in IMAGE_EXTENSIONS)
+                open_image.clicked.connect(lambda _checked=False, p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p))))
+                images_layout.addWidget(open_image)
+            scroll.setWidget(panel)
+            layout.addWidget(scroll, 3)
         close_button = QPushButton("关闭")
         close_button.clicked.connect(dialog.close)
         layout.addWidget(close_button, alignment=Qt.AlignRight)
@@ -400,6 +490,7 @@ class MainWindow(QMainWindow):
             return
         self.results = []
         self.batch_history = []
+        self.diagnostic_events = []
         self.report_button.setEnabled(False)
         self.file_list.clear()
         self.update_counts()
