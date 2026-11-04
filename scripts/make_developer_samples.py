@@ -61,8 +61,8 @@ def make_developer_samples(folder):
     patch_zip(ppt, {"ppt/commentAuthors.xml": authors, "ppt/comments/comment1.xml": comments})
     (folder / "测试说明.txt").write_text(
         "全部为虚构数据，可自由测试。\n\n"
-        "1. 点‘开发评审 Word’，选 02_开发评审_五条意见.docx。\n"
-        "2. 原始文档选 01_被评审原文_虚构.docx，评审人填写‘开发甲’。\n"
+        "1. 点‘评审 Word ＋ 原手册…’，在①开发评审 Word选 02_开发评审_五条意见.docx。\n"
+        "2. 在②原手册 Word选 01_被评审原文_虚构.docx，评审人填写‘开发甲’。\n"
         "3. 保持离线 OCR 选中。应为 5 条意见、5 张截图、0 回复。第1条保留截图后的补充文字。\n"
         "4. Windows OCR 可用时：第1条定位含第12页；第2条接口设计；第3条数据统计或图标题；第4条搜索短句；第5条位置未确定。识别失败时保留所有文字和截图，处理记录有提示。\n"
         "5. 双击上下文截图可预览；导出后保留 Excel 及同名附件目录，里面应有5张原图。\n"

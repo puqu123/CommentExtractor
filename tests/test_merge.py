@@ -5,13 +5,15 @@ from zipfile import ZipFile
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from openpyxl import load_workbook
-from PySide6.QtWidgets import QApplication, QInputDialog
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import Qt
 
 from commentextract.app import MainWindow
 from commentextract.extract import extract_file
 from commentextract.export import export_result
 from commentextract.merge import merge_results, suggest_group_name
 from .samples import W, make_word, patch_zip
+from .test_app import wait_for_worker
 
 
 def review_returns(tmp_path):
@@ -58,19 +60,25 @@ def test_merge_preserves_rows_identity_replies_and_duplicate_choice(tmp_path):
     workbook.close()
 
 
-def test_gui_explicit_grouping_retains_read_only_fields(tmp_path, monkeypatch):
+def test_gui_summary_keeps_individual_rows_and_acceptance_choices(tmp_path, monkeypatch):
     application = QApplication.instance() or QApplication([])
     window = MainWindow()
     for result in review_returns(tmp_path):
         window.add_result(result)
-    window.file_list.selectAll()
-    monkeypatch.setattr(QInputDialog, "getText", lambda *args, **kwargs: ("A文件", True))
-    window.merge_files()
-    assert len(window.results) == 1
-    assert window.table.rowCount() == 2
-    assert len(window.results[0].sources) == 2
+    assert all(window.file_list.item(i).checkState() == Qt.Checked for i in range(2))
+    window.file_list.setCurrentRow(0)
     window.table.item(0, 6).setText("是")
-    window.table.item(1, 6).setText("重复")
-    assert window.results[0].issues[1].acceptance == "重复"
-    window.dirty = False
+    window.file_list.setCurrentRow(1)
+    window.table.item(0, 6).setText("重复")
+    output = tmp_path / "out" / "A文件.xlsx"
+    monkeypatch.setattr("commentextract.app.choose_summary_file", lambda *args: str(output))
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: QMessageBox.Ok)
+    window.export_summary()
+    wait_for_worker(window)
+    assert len(window.results) == 2  # Export does not replace the input list.
+    assert not window.dirty
+    workbook = load_workbook(output)
+    assert workbook["评审汇总"]["G2"].value == "是"
+    assert workbook["评审汇总"]["G3"].value == "重复"
+    workbook.close()
     window.close()

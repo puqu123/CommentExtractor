@@ -1,6 +1,6 @@
 # 批注提取兼容性测试与验收
 
-适用范围：本地 v0.2.6，`.docx`、`.xlsx`、`.pptx` 及单独入口的开发评审 Word。目标是在公司实际使用的 Office/WPS 文件上做到**主意见、回复、作者和文字不漏不串**，而不是仅做到没有报错。
+适用范围：v0.2.7（含 v0.2.6 累积用例），`.docx`、`.xlsx`、`.pptx` 及单独入口的开发评审 Word。目标是在公司实际使用的 Office/WPS 文件上做到**主意见、回复、作者和文字不漏不串**，而不是仅做到没有报错。
 
 ## 什么算通过
 
@@ -15,7 +15,7 @@
 
 文件由 Python 生成并修改 OOXML 部件，**没有作为真实 Office/WPS 保存文件认证**。每个预期由测试代码独立指定，不从提取结果反生成预期。详细编号、内容与结果见生成的 `manifest.json`、`测试结果.md`、`results.json`。
 
-当前共 53 份构造文件：41 份正向完整性、8 份恢复控制、4 份明确失败控制；加上其他回归、测试流程及诊断隐私检查，共 103 项自动检查。这里的数字表示已列出的用例，不是软件版本覆盖率。
+当前共 53 份构造文件：41 份正向完整性、8 份恢复控制、4 份明确失败控制；加上其他回归、测试流程、诊断隐私、文件勾选与导出范围检查，共 115 项自动检查。这里的数字表示已列出的用例，不是软件版本覆盖率。
 
 2026-11-04 本机实际 EXE 首轮中，WR01（损坏回复元数据）有一次 120 秒超时，首次结果保留为失败。同一文件单独复测约 0.7 秒完成，随后全量 53 份复测均符合预期，最慢约 1.2 秒。**该次超时原因尚未定位，不能将复测通过写成问题已修复。** EXE 检查现在保存逐文件耗时、退出码、标准输出及错误日志；后续再出现时应结合日志继续定位。
 
@@ -49,7 +49,7 @@ Office 使用的兼容分支机制见[微软说明](https://learn.microsoft.com/
 .\.venv\Scripts\python.exe scripts\check_compatibility.py
 
 # 用实际免安装 EXE 导出，再逐条比对 Excel；同时检查源码解析
-.\.venv\Scripts\python.exe scripts\check_compatibility.py --executable .\dist\v0.2.6\CommentExtractor\CommentExtractor.exe
+.\.venv\Scripts\python.exe scripts\check_compatibility.py --executable .\dist\v0.2.7\CommentExtractor\CommentExtractor.exe
 ```
 
 默认每次创建新的 `local_data/兼容性测试_时间_随机编号` 文件夹。`positive`、`recovery`、`negative` 分开统计。已存在输出目录不覆盖。负向测试“按预期失败”不能被写成提取成功。

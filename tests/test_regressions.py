@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from openpyxl import load_workbook
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QInputDialog, QDialog, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QDialog, QPlainTextEdit
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtTest import QTest
 
@@ -159,31 +159,31 @@ def test_single_write_failure_does_not_stop_batch(tmp_path, notices, monkeypatch
     window.close()
 
 
-def test_five_file_merge_uses_native_directory_api_and_source_column(tmp_path, notices, monkeypatch):
+def test_five_file_summary_uses_native_save_api_and_source_column(tmp_path, notices, monkeypatch):
     window = MainWindow()
     files = [make_word(tmp_path / f"A_rev by {i}.docx") for i in range(5)]
     for source in files:
         window.add_result(extract_file(source))
-    window.file_list.selectAll()
-    monkeypatch.setattr(QInputDialog, "getText", lambda *args, **kwargs: ("A", True))
-    window.merge_files()
-    assert len(window.results) == 1
+    assert all(window.file_list.item(row).checkState() == Qt.Checked for row in range(5))
+    assert len(window.results) == 5
     assert "5 份源文件" in window.stat_notes["files"].text()
-    assert window.table.item(4, 1).text() == files[4].name
     output = tmp_path / "合并导出"
     output.mkdir()
 
-    def select_directory(parent, title, directory, options):
+    def select_file(parent, title, suggested, filters, options):
         assert parent is window
-        assert title == "选择输出目录"
-        assert options == QFileDialog.ShowDirsOnly
+        assert "汇总导出" in title
+        assert suggested == "A_评审意见.xlsx"
+        assert filters == "Excel 文件 (*.xlsx)"
+        assert options & QFileDialog.DontConfirmOverwrite
         assert not options & QFileDialog.DontUseNativeDialog
-        return str(output)
+        return str(output / "A.xlsx"), filters
 
-    monkeypatch.setattr(QFileDialog, "getExistingDirectory", select_directory)
-    window.export()
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", select_file)
+    window.export_summary()
     wait_for_worker(window)
     assert len(window.output_paths) == 1
+    assert len(window.results) == 5
     workbook = load_workbook(window.output_paths[0])
     sheet = workbook["评审汇总"]
     assert [c.value for c in sheet[1]] == HEADERS

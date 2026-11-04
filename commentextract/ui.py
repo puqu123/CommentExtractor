@@ -1,12 +1,13 @@
 """Desktop presentation layer; extraction and export remain independent."""
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QIcon, QPainter
+from PySide6.QtCore import Qt, QPointF
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QListWidget, QProgressBar, QPushButton,
-    QSplitter, QTableWidget, QVBoxLayout, QWidget, QSizePolicy,
+    QSplitter, QTableWidget, QVBoxLayout, QWidget, QSizePolicy, QCheckBox,
+    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QStyleOptionButton,
 )
 
 from . import __version__
@@ -27,6 +28,49 @@ class ReviewTable(QTableWidget):
             painter.setPen(QColor("#7890A3"))
             painter.drawText(self.viewport().rect(), Qt.AlignCenter,
                              "这里将显示提取出的评审意见\n\n在左侧添加文件，支持多种格式一起选择")
+
+
+class SelectAllCheckBox(QCheckBox):
+    def nextCheckState(self):
+        # A partial check should become "all", not cycle through a third
+        # user-selected state. Partial is only a summary of the file checkboxes.
+        self.setCheckState(Qt.Unchecked if self.checkState() == Qt.Checked else Qt.Checked)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        rect = self.style().subElementRect(QStyle.SE_CheckBoxIndicator, option, self).adjusted(0, 0, -1, -1)
+        painter = QPainter(self)
+        paint_check(painter, rect, self.checkState())
+
+
+def paint_check(painter, rect, state):
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor("#8BB5C5"), 1))
+    painter.setBrush(QColor("#13876F" if state != Qt.Unchecked else "#F8FAFC"))
+    painter.drawRoundedRect(rect, 2, 2)
+    painter.setPen(QPen(QColor("#FFFFFF"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    if state == Qt.Checked:
+        painter.drawLine(QPointF(rect.left() + 3, rect.center().y()), QPointF(rect.left() + 6, rect.bottom() - 3))
+        painter.drawLine(QPointF(rect.left() + 6, rect.bottom() - 3), QPointF(rect.right() - 2, rect.top() + 3))
+    elif state == Qt.PartiallyChecked:
+        painter.drawLine(QPointF(rect.left() + 3, rect.center().y()), QPointF(rect.right() - 3, rect.center().y()))
+    painter.restore()
+
+
+class FileCheckDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        if not styled.features & QStyleOptionViewItem.HasCheckIndicator:
+            return
+        # Keep Qt's native hit area and keyboard behavior; only make the
+        # indicator legible against the dark file list.
+        rect = option.widget.style().subElementRect(QStyle.SE_ItemViewItemCheckIndicator, styled, option.widget).adjusted(0, 0, -1, -1)
+        paint_check(painter, rect, styled.checkState)
 
 
 def build_ui(window, acceptance_delegate):
@@ -71,43 +115,67 @@ def build_ui(window, acceptance_delegate):
     outer.addLayout(body, 1)
     rail = QWidget()
     rail.setObjectName("sidebar")
-    rail.setMinimumWidth(190)
+    rail.setMinimumWidth(220)
     rail.setMaximumWidth(400)
     rail_layout = QVBoxLayout(rail)
-    rail_layout.setContentsMargins(16, 24, 16, 16)
-    rail_layout.setSpacing(14)
+    rail_layout.setContentsMargins(16, 18, 16, 12)
+    rail_layout.setSpacing(9)
     rail_title = QHBoxLayout()
-    rail_title.addWidget(QLabel("评审文件"))
+    rail_title.addWidget(QLabel("已导入评审"))
     rail_title.addStretch()
     window.file_count = QLabel("0")
     window.file_count.setObjectName("fileCount")
     rail_title.addWidget(window.file_count)
     rail_layout.addLayout(rail_title)
+    standard_title = QLabel("文件自带批注")
+    rail_layout.addWidget(standard_title)
+    standard_hint = QLabel("Word / Excel / PPT，只需评审返回文件")
+    standard_hint.setObjectName("railHint")
+    standard_hint.setWordWrap(True)
+    rail_layout.addWidget(standard_hint)
     add_actions = QHBoxLayout()
     add_actions.setSpacing(8)
     window.add_button = QPushButton("＋ 添加文件")
     window.add_button.setToolTip("在同一文件夹按 Ctrl / Shift 多选 Word、Excel、PPT 文件。")
-    window.folder_button = QPushButton("文件夹")
+    window.folder_button = QPushButton("添加文件夹")
     window.folder_button.setToolTip("导入整个文件夹及子目录中的受支持文件。")
     add_actions.addWidget(window.add_button, 3)
     add_actions.addWidget(window.folder_button, 2)
     rail_layout.addLayout(add_actions)
-    window.developer_button = QPushButton("开发评审 Word…")
-    window.developer_button.setToolTip("导入按编号写在正文中的意见及截图，可选择原始 Word 辅助定位。")
+    developer_title = QLabel("开发写在正文中的意见")
+    rail_layout.addWidget(developer_title)
+    window.developer_button = QPushButton("评审 Word ＋ 原手册…")
+    window.developer_button.setToolTip("打开同一个窗口，分别选择开发评审 Word 和被评审的原手册 Word。")
     rail_layout.addWidget(window.developer_button)
+    developer_hint = QLabel("编号意见＋截图；原手册用于辅助定位")
+    developer_hint.setObjectName("railHint")
+    developer_hint.setWordWrap(True)
+    rail_layout.addWidget(developer_hint)
+    checks = QHBoxLayout()
+    window.select_all_box = SelectAllCheckBox("全选文件")
+    window.select_all_box.setTristate(True)
+    window.select_all_box.setChecked(True)
+    checks.addWidget(window.select_all_box)
+    checks.addStretch()
+    window.remove_checked_button = QPushButton("清除文件")
+    window.remove_checked_button.setObjectName("removeChecked")
+    window.remove_checked_button.setToolTip("从列表清除文件的文件，硬盘上的原文件不受影响。")
+    checks.addWidget(window.remove_checked_button)
+    rail_layout.addLayout(checks)
+    window.checked_count = QLabel("已选 0 / 0")
+    window.checked_count.setObjectName("railHint")
+    rail_layout.addWidget(window.checked_count)
     window.file_list = QListWidget()
     window.file_list.setObjectName("files")
-    window.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+    window.file_list.setItemDelegate(FileCheckDelegate(window.file_list))
+    window.file_list.setSelectionMode(QAbstractItemView.SingleSelection)
     window.file_list.setWordWrap(True)
     window.file_list.setSpacing(5)
     rail_layout.addWidget(window.file_list, 1)
-    selection_hint = QLabel("Ctrl / Shift 多选返回文件，可合并同一文档的评审。")
+    selection_hint = QLabel("勾选决定导出范围；点击文件查看意见。新导入文件默认勾选。")
     selection_hint.setObjectName("railHint")
     selection_hint.setWordWrap(True)
     rail_layout.addWidget(selection_hint)
-    window.merge_button = QPushButton("合并所选评审文件")
-    window.merge_button.setToolTip("选中同一文档的多个评审返回文件，合并导出一份 Excel。")
-    rail_layout.addWidget(window.merge_button)
     window.clear_button = QPushButton("清空列表")
     window.clear_button.setObjectName("railQuiet")
     rail_layout.addWidget(window.clear_button)
@@ -128,7 +196,7 @@ def build_ui(window, acceptance_delegate):
     stats.setSpacing(12)
     window.stat_values = {}
     window.stat_notes = {}
-    for key, title, note in [("files", "待导出文件", "每个文件或合并组一份 Excel"),
+    for key, title, note in [("files", "可导出文件", "在左侧选择导出范围"),
                              ("opinions", "评审意见", "保留所有评审人的记录"),
                              ("replies", "已有回复", "从源文件直接提取"),
                              ("effective", "有效意见", "已排除 0 条重复意见")]:
@@ -225,6 +293,8 @@ def build_ui(window, acceptance_delegate):
     footer.setSpacing(12)
     window.status = QLabel("就绪 · 原文件只读")
     window.status.setObjectName("muted")
+    window.status.setMinimumWidth(0)
+    window.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
     footer.addWidget(window.status, 1)
     window.open_output_button = QPushButton("打开输出目录")
     window.open_output_button.setEnabled(False)
@@ -235,12 +305,16 @@ def build_ui(window, acceptance_delegate):
     window.cancel_button = QPushButton("停止处理")
     window.cancel_button.setVisible(False)
     footer.addWidget(window.cancel_button)
-    window.export_button = QPushButton("批量导出 Excel")
-    window.export_button.setObjectName("primary")
-    window.export_button.setMinimumWidth(166)
-    window.export_button.setMinimumHeight(42)
-    window.export_button.setEnabled(False)
-    footer.addWidget(window.export_button)
+    window.separate_export_button = QPushButton("分别导出（0份）")
+    window.separate_export_button.setMinimumHeight(42)
+    window.separate_export_button.setEnabled(False)
+    footer.addWidget(window.separate_export_button)
+    window.summary_export_button = QPushButton("汇总导出（0份）")
+    window.summary_export_button.setObjectName("primary")
+    window.summary_export_button.setMinimumWidth(136)
+    window.summary_export_button.setMinimumHeight(42)
+    window.summary_export_button.setEnabled(False)
+    footer.addWidget(window.summary_export_button)
     main.addLayout(footer)
     window.progress = QProgressBar()
     window.progress.setRange(0, 1)
@@ -250,7 +324,7 @@ def build_ui(window, acceptance_delegate):
     main.addWidget(window.progress)
     window.workspace_splitter.addWidget(main_panel)
     window.workspace_splitter.setStretchFactor(1, 1)
-    window.workspace_splitter.setSizes([230, 1290])
+    window.workspace_splitter.setSizes([260, 1260])
 
     window.setStyleSheet("""
         QMainWindow, #workspace { background: #F2F5F9; }
@@ -265,10 +339,14 @@ def build_ui(window, acceptance_delegate):
         #sidebar QLabel { color: #DFE9F2; }
         #sidebar #railHint { color: #90A7BB; font-size: 11px; }
         #sidebar #fileCount { color: #B8D9EA; background: #25445E; padding: 3px 9px; border-radius: 9px; }
+        #sidebar QCheckBox { color: #DFE9F2; }
+        #sidebar QCheckBox::indicator { width: 16px; height: 16px; }
+        #sidebar QPushButton#removeChecked { padding: 4px 7px; }
         #files { border: none; background: transparent; color: #D1E1ED; outline: none; }
         #files::item { padding: 14px 10px; border-radius: 7px; color: #D1E1ED; }
         #files::item:selected { background: #2C526E; color: white; }
         #files::item:hover { background: #213F58; }
+        #files::indicator { width: 16px; height: 16px; }
         QPushButton { background: white; border: 1px solid #D9E3EC; border-radius: 6px; padding: 9px 12px; }
         QPushButton:hover { background: #F0F6FB; border-color: #A8BDCF; }
         QPushButton:disabled { background: #F2F5F8; color: #A2AFBD; border-color: #E2E8EF; }

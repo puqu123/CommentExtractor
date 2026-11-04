@@ -6,10 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import Qt, QThread, Signal, QUrl, QItemSelectionModel
+from PySide6.QtCore import Qt, QThread, Signal, QUrl, QItemSelectionModel, QSignalBlocker
 from PySide6.QtGui import QDesktopServices, QFont, QPainter, QColor
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QInputDialog, QListWidgetItem,
+    QApplication, QComboBox, QDialog, QListWidgetItem,
     QMainWindow, QMessageBox, QTableWidgetItem, QTextEdit, QPlainTextEdit,
     QPushButton, QVBoxLayout, QHBoxLayout, QLabel,
     QStyledItemDelegate, QStyle, QStyleOptionViewItem,
@@ -20,7 +20,7 @@ from .extract import extract_file
 from .models import ACCEPTANCE, ACCEPTANCE_COLUMN, CONTEXT_COLUMN, HEADERS
 from .merge import merge_results, suggest_group_name
 from .ui import build_ui, app_icon
-from .dialogs import choose_files, choose_directory
+from .dialogs import choose_files, choose_directory, choose_summary_file
 from .inputs import collect_files
 from .models import Extraction, IMAGE_EXTENSIONS
 from .developer_dialog import choose_developer_files
@@ -74,7 +74,7 @@ class Worker(QThread):
     exported = Signal(str)
     failure = Signal(str)
 
-    def __init__(self, items, output=None, parent=None, options=None):
+    def __init__(self, items, output=None, parent=None, options=None, tracked_issue_ids=None, output_filename=None):
         super().__init__(parent)
         self.items = list(items)
         self.output = output
@@ -82,6 +82,11 @@ class Worker(QThread):
         self.skipped = []
         self.options = options or {}
         self.diagnostic_events = []
+        self.tracked_issue_ids = tracked_issue_ids or {}
+        self.exported_issue_ids = set()
+        self.excluded_results = []
+        self.scope_label = "全部文件"
+        self.output_filename = output_filename
 
     def run(self):
         for index, item in enumerate(self.items):
@@ -92,7 +97,9 @@ class Worker(QThread):
             try:
                 if self.output:
                     from .export import export_result
-                    target = str(export_result(item, self.output))
+                    target = str(export_result(item, self.output, filename=self.output_filename)
+                                 if self.output_filename else export_result(item, self.output))
+                    self.exported_issue_ids.update(self.tracked_issue_ids.get(id(item), {id(issue) for issue in item.issues}))
                     self.exported.emit(target)
                     self.records.append(f"导出成功：{item.source}\n  → {target}")
                 else:
@@ -122,16 +129,20 @@ class MainWindow(QMainWindow):
         self.batch_history = []
         self.dirty = False
         self.diagnostic_events = []
+        self.dirty_issue_ids = set()
         build_ui(self, AcceptanceDelegate)
         self.add_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
         self.developer_button.clicked.connect(self.choose_developer)
         self.clear_button.clicked.connect(self.clear_files)
-        self.merge_button.clicked.connect(self.merge_files)
-        self.export_button.clicked.connect(self.export)
+        self.remove_checked_button.clicked.connect(self.remove_checked_files)
+        self.summary_export_button.clicked.connect(self.export_summary)
+        self.separate_export_button.clicked.connect(self.export)
         self.cancel_button.clicked.connect(self.cancel)
         self.file_list.currentRowChanged.connect(self.show_result)
         self.file_list.itemSelectionChanged.connect(self.update_counts)
+        self.file_list.itemChanged.connect(lambda _item: self.update_counts())
+        self.select_all_box.stateChanged.connect(self.toggle_all_files)
         self.table.cellDoubleClicked.connect(self.open_cell_text)
         self.table.itemChanged.connect(self.item_changed)
         self.search.textChanged.connect(self.filter_rows)
@@ -156,13 +167,38 @@ class MainWindow(QMainWindow):
         source_count = sum(len(r.sources) if r.sources else 1 for r in self.results)
         failed = sum(bool(r.error) for r in self.results)
         self.stat_notes["files"].setText(f"{source_count} 份源文件 · {failed} 份提取失败")
-        self.export_button.setText(f"导出 {exports} 份 Excel" if exports else "批量导出 Excel")
-        self.export_button.setEnabled(exports > 0 and not self.busy())
-        self.merge_button.setEnabled(len(self.file_list.selectedIndexes()) >= 2 and not self.busy())
+        checked = self.checked_results()
+        readable = sum(not result.error for result in checked)
+        self.checked_count.setText(f"已选 {len(checked)} / {len(self.results)}")
+        with QSignalBlocker(self.select_all_box):
+            state = Qt.Checked if not self.results or len(checked) == len(self.results) else (Qt.Unchecked if not checked else Qt.PartiallyChecked)
+            self.select_all_box.setCheckState(state)
+        self.select_all_box.setEnabled(bool(self.results) and not self.busy())
+        self.remove_checked_button.setEnabled(bool(checked) and not self.busy())
+        self.separate_export_button.setText(f"分别导出（{readable}份）")
+        self.summary_export_button.setText(f"汇总导出（{1 if readable else 0}份）")
+        notice = f"勾选 {len(checked)} 份文件，其中 {len(checked) - readable} 份提取失败将跳过。"
+        self.separate_export_button.setToolTip(notice + "每个可读文件分别生成一份 Excel。")
+        self.summary_export_button.setToolTip(notice + "所有可读文件的意见汇总到一份 Excel，保留每行来源文件名。")
+        for button in (self.separate_export_button, self.summary_export_button):
+            button.setEnabled(readable > 0 and not self.busy())
+
+    def checked_results(self):
+        return [self.results[row] for row in range(min(len(self.results), self.file_list.count()))
+                if self.file_list.item(row).checkState() == Qt.Checked]
+
+    def toggle_all_files(self, _state=None):
+        if self.busy() or self.select_all_box.checkState() == Qt.PartiallyChecked:
+            return
+        checked = self.select_all_box.checkState()
+        with QSignalBlocker(self.file_list):
+            for row in range(self.file_list.count()):
+                self.file_list.item(row).setCheckState(checked)
+        self.update_counts()
 
     def set_busy(self, busy):
-        for widget in [self.add_button, self.folder_button, self.developer_button, self.clear_button, self.merge_button,
-                       self.export_button, self.table]:
+        for widget in [self.add_button, self.folder_button, self.developer_button, self.clear_button,
+                       self.summary_export_button, self.separate_export_button, self.table, self.file_list]:
             widget.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
         self.cancel_button.setVisible(busy)
@@ -222,6 +258,8 @@ class MainWindow(QMainWindow):
             status += " · 部分提取，需核对"
         label = f"{result.source.stem}（{len(result.sources)} 份评审）" if result.sources else result.source.name
         item = QListWidgetItem(label + "\n" + status)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        item.setCheckState(Qt.Checked)
         paths = "\n".join(str(path) for path in result.sources) if result.sources else str(result.source)
         item.setToolTip(paths + "\n" + (result.error or "\n".join(result.warnings)))
         self.file_list.addItem(item)
@@ -246,14 +284,13 @@ class MainWindow(QMainWindow):
         worker.deleteLater()
         self.set_busy(False)
         if is_export:
-            # Only acceptance choices require protection against accidental loss.
-            # Clear the dirty flag after a complete, successful batch export.
-            if not interrupted and not self.failures:
-                self.dirty = False
+            # An export of a subset must never mark edits in other files saved.
+            self.dirty_issue_ids.difference_update(worker.exported_issue_ids)
+            self.dirty = bool(self.dirty_issue_ids)
             self.open_output_button.setEnabled(bool(self.output_paths))
-            excluded = [r for r in self.results if r.error]
+            excluded = worker.excluded_results
             remaining = len(worker.items) - len(worker.records)
-            text = (f"{'已停止' if interrupted else '导出完成'}：计划 {len(worker.items)} 份，"
+            text = (f"{'已停止' if interrupted else '导出完成'}（{worker.scope_label}）：计划 {len(worker.items)} 份，"
                     f"成功 {len(self.output_paths)} 份，导出失败 {len(self.failures)} 份，未处理 {remaining} 份；"
                     f"另有 {len(excluded)} 份源文件提取失败，未导出。")
             self.batch_history.append(text)
@@ -415,7 +452,10 @@ class MainWindow(QMainWindow):
                 item.setText(issue.acceptance)
                 self.loading = False
                 return
+            if value == issue.acceptance:
+                return
             issue.acceptance = value
+            self.dirty_issue_ids.add(id(issue))
         self.dirty = True
         item.setToolTip(value)
         self.update_counts()
@@ -471,14 +511,50 @@ class MainWindow(QMainWindow):
         dialog.open()
 
     def export(self):
-        results = [r for r in self.results if not r.error]
+        if self.busy():
+            return
+        checked = self.checked_results()
+        results = [r for r in checked if not r.error]
         if not results:
-            QMessageBox.information(self, "没有可导出数据", "请先添加并提取文件；提取失败的文件不会导出为空表。")
+            QMessageBox.information(self, "没有可导出数据", "请勾选至少一份成功提取的文件；提取失败的文件不会导出为空表。")
             return
         folder = choose_directory(self, "选择输出目录")
         if folder:
             self.last_output = Path(folder)
-            self.start_worker(Worker(results, folder, parent=self))
+            worker = Worker(results, folder, parent=self)
+            worker.excluded_results = [r for r in checked if r.error]
+            worker.scope_label = f"勾选 {len(checked)} 份，分别导出"
+            self.batch_history.append("本次分别导出范围：\n" + "\n".join(str(r.source) for r in checked))
+            self.start_worker(worker)
+
+    def export_summary(self):
+        if self.busy():
+            return
+        checked = self.checked_results()
+        results = [r for r in checked if not r.error]
+        if not results:
+            QMessageBox.information(self, "没有可导出数据", "请勾选至少一份成功提取的文件；提取失败的文件不会导出为空表。")
+            return
+        names = {suggest_group_name([result]) for result in results}
+        suggested = (next(iter(names)) + "_评审意见.xlsx") if len(names) == 1 else "评审意见汇总.xlsx"
+        filename = choose_summary_file(self, suggested)
+        if not filename:
+            return
+        target = Path(filename)
+        if target.suffix.lower() != ".xlsx":
+            target = target.with_name(target.name + ".xlsx")
+        try:
+            summary = merge_results(results, target.stem) if len(results) > 1 else results[0]
+        except ValueError as exc:
+            QMessageBox.warning(self, "无法汇总导出", str(exc))
+            return
+        tracked = {id(summary): {id(issue) for result in results for issue in result.issues}}
+        worker = Worker([summary], str(target.parent), parent=self, tracked_issue_ids=tracked, output_filename=target.name)
+        worker.excluded_results = [r for r in checked if r.error]
+        worker.scope_label = f"勾选 {len(checked)} 份，汇总导出"
+        self.last_output = target.parent
+        self.batch_history.append("本次汇总导出范围：\n" + "\n".join(str(r.source) for r in checked))
+        self.start_worker(worker)
 
     def confirm_discard(self):
         return not self.dirty or QMessageBox.question(
@@ -491,38 +567,38 @@ class MainWindow(QMainWindow):
         self.results = []
         self.batch_history = []
         self.diagnostic_events = []
+        self.dirty_issue_ids.clear()
         self.report_button.setEnabled(False)
         self.file_list.clear()
         self.update_counts()
         self.message.setText("点击“添加文件”，或将文件拖入窗口。")
         self.dirty = False
 
-    def merge_files(self):
-        rows = sorted(index.row() for index in self.file_list.selectedIndexes())
-        if len(rows) < 2:
-            QMessageBox.information(self, "请选择多个评审文件", "在左侧按 Ctrl 或 Shift 选中同一文档的两个或更多评审返回文件。")
+    def remove_checked_files(self):
+        if self.busy():
             return
-        selected = [self.results[row] for row in rows]
-        name, accepted = QInputDialog.getText(self, "合并同一文档的评审", "被评审文档名称（用于导出文件名）", text=suggest_group_name(selected))
-        if not accepted:
+        rows = [row for row in range(self.file_list.count()) if self.file_list.item(row).checkState() == Qt.Checked]
+        if not rows:
             return
-        try:
-            merged = merge_results(selected, name)
-        except ValueError as exc:
-            QMessageBox.warning(self, "无法合并", str(exc))
+        removed = [self.results[row] for row in rows]
+        removed_ids = {id(issue) for result in removed for issue in result.issues}
+        if removed_ids & self.dirty_issue_ids and QMessageBox.question(
+                self, "接受情况尚未导出", "勾选文件中有尚未导出的接受情况。移除后这些填写会丢失，确定移除？",
+                QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Discard:
             return
-        # Rebuild the list only after the merge is complete. Human acceptance
-        # choices are copied and remain dirty until a successful export.
-        selected_rows = set(rows)
-        self.results = [result for row, result in enumerate(self.results) if row not in selected_rows] + [merged]
-        self.file_list.clear()
-        for result in self.results:
-            self.append_file_item(result)
-        self.file_list.setCurrentRow(len(self.results) - 1, QItemSelectionModel.ClearAndSelect)
+        current = self.current_result()
+        self.batch_history.append(f"从列表移除 {len(rows)} 份文件。")
+        with QSignalBlocker(self.file_list):
+            for row in reversed(rows):
+                self.file_list.takeItem(row)
+                del self.results[row]
+            remaining_index = next((i for i, result in enumerate(self.results) if result is current), -1)
+            self.file_list.setCurrentRow(remaining_index if remaining_index >= 0 else (0 if self.results else -1))
+        self.dirty_issue_ids.difference_update(removed_ids)
+        self.dirty = bool(self.dirty_issue_ids)
         self.update_counts()
-        note = f"已合并 {len(merged.sources)} 份评审为 {merged.source.stem}，导出时生成 1 份 Excel。"
-        self.batch_history.append(note)
-        self.status.setText(note + "相同意见请人工将后出现的行标记为“重复”。")
+        self.show_result()
+        self.status.setText(f"已从列表移除 {len(rows)} 份文件。")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and not self.busy():

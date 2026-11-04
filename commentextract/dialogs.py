@@ -10,3 +10,10 @@ def choose_files(parent):
 
 def choose_directory(parent, title):
     return QFileDialog.getExistingDirectory(parent, title, "", QFileDialog.ShowDirsOnly)
+
+
+def choose_summary_file(parent, suggested):
+    filename, _ = QFileDialog.getSaveFileName(
+        parent, "汇总导出 Excel（重名自动加序号）", suggested, "Excel 文件 (*.xlsx)",
+        options=QFileDialog.DontConfirmOverwrite)
+    return filename

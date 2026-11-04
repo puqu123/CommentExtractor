@@ -16,13 +16,18 @@ from .models import HEADERS, ACCEPTANCE, ACCEPTANCE_COLUMN, IMAGE_EXTENSIONS
 INVALID_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
-def export_result(result, output_dir):
+def export_result(result, output_dir, filename=None):
     """One workbook per source; atomically reserve names and never overwrite."""
     if result.error:
         raise ValueError("提取失败的文件不能导出为空意见表：" + result.error)
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    base = result.source.stem + "_评审意见"
+    if filename is not None:
+        if Path(filename).name != filename or not filename.lower().endswith(".xlsx") or re.search(r'[<>:"/\\|?*\x00-\x1f]', filename):
+            raise ValueError("请指定有效的 Excel 文件名（.xlsx），不要包含路径或文件名特殊字符。")
+        base = Path(filename).stem
+    else:
+        base = result.source.stem + "_评审意见"
     counter = 1
     while True:
         suffix = "" if counter == 1 else f"_{counter}"
@@ -109,6 +114,10 @@ def export_result(result, output_dir):
             report.append(["提示", ""])
             set_text(report.cell(report.max_row, 2), warning)
         if result.sources:
+            report.append(["汇总源文件数", len(result.sources)])
+            for source in result.sources:
+                report.append(["汇总来源文件", ""])
+                set_text(report.cell(report.max_row, 2), str(source))
             report.append(["意见来源", "原始评审返回文件"])
             for issue in result.issues:
                 row = report.max_row + 1
