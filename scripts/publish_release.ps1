@@ -58,6 +58,7 @@ if (-not $SkipBuild) {
 }
 $bundle = Join-Path $projectRoot "dist\$tag\CommentExtractor\CommentExtractor.exe"
 Invoke-Checked $taskPython @('scripts\smoke_bundle.py', $bundle)
+Invoke-Checked $taskPython @('scripts\smoke_split_bundle.py')
 $prepared = & $taskPython scripts\prepare_release.py
 if ($LASTEXITCODE -ne 0) { throw 'Preparing release artifacts failed.' }
 $artifacts = $prepared | ConvertFrom-Json
@@ -73,7 +74,7 @@ $gitArgs = @('-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-c
 if ($env:HTTPS_PROXY) { $gitArgs += @('-c', "http.proxy=$env:HTTPS_PROXY") }
 Invoke-Checked 'git' ($gitArgs + @('push', '-u', 'origin', 'main'))
 Invoke-Checked 'git' ($gitArgs + @('push', 'origin', $tag))
-$releaseArgs = @('release', 'create', $tag, $artifacts.binary, $artifacts.source, $artifacts.checksums,
+$releaseArgs = @('release', 'create', $tag, $artifacts.binary, $artifacts.addon, $artifacts.source, $artifacts.checksums,
                  '--repo', $repository, '--title', "CommentExtractor $tag", '--notes-file', $artifacts.notes, '--verify-tag')
 if (-not $Stable) { $releaseArgs += '--prerelease' }
 Invoke-Checked $ghPath $releaseArgs

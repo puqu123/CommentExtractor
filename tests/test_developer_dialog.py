@@ -22,7 +22,7 @@ def test_both_document_roles_are_visible_before_file_picker(application, monkeyp
     assert dialog.reference_edit.isVisible() and dialog.review_edit.isVisible()
     assert dialog.reference_button.isVisible() and dialog.review_button.isVisible()
     assert not dialog.start_button.isEnabled()
-    assert any("不作为评审意见导入" in label.text() for label in dialog.findChildren(QLabel))
+    assert "原手册" in dialog.reference_edit.placeholderText()
     dialog.close()
 
 

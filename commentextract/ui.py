@@ -121,18 +121,24 @@ def build_ui(window, acceptance_delegate):
     rail_layout.setContentsMargins(16, 18, 16, 12)
     rail_layout.setSpacing(9)
     rail_title = QHBoxLayout()
-    rail_title.addWidget(QLabel("已导入评审"))
+    rail_title.addWidget(QLabel("评审文件"))
     rail_title.addStretch()
     window.file_count = QLabel("0")
     window.file_count.setObjectName("fileCount")
     rail_title.addWidget(window.file_count)
     rail_layout.addLayout(rail_title)
-    standard_title = QLabel("文件自带批注")
-    rail_layout.addWidget(standard_title)
-    standard_hint = QLabel("Word / Excel / PPT，只需评审返回文件")
+    standard_card = QFrame()
+    standard_card.setObjectName("railGroup")
+    standard_layout = QVBoxLayout(standard_card)
+    standard_layout.setContentsMargins(12, 10, 12, 12)
+    standard_layout.setSpacing(7)
+    standard_title = QLabel("标准批注")
+    standard_title.setObjectName("railSection")
+    standard_layout.addWidget(standard_title)
+    standard_hint = QLabel("Word  ·  Excel  ·  PPT")
     standard_hint.setObjectName("railHint")
     standard_hint.setWordWrap(True)
-    rail_layout.addWidget(standard_hint)
+    standard_layout.addWidget(standard_hint)
     add_actions = QHBoxLayout()
     add_actions.setSpacing(8)
     window.add_button = QPushButton("＋ 添加文件")
@@ -141,16 +147,24 @@ def build_ui(window, acceptance_delegate):
     window.folder_button.setToolTip("导入整个文件夹及子目录中的受支持文件。")
     add_actions.addWidget(window.add_button, 3)
     add_actions.addWidget(window.folder_button, 2)
-    rail_layout.addLayout(add_actions)
-    developer_title = QLabel("开发写在正文中的意见")
-    rail_layout.addWidget(developer_title)
+    standard_layout.addLayout(add_actions)
+    rail_layout.addWidget(standard_card)
+    developer_card = QFrame()
+    developer_card.setObjectName("railGroup")
+    developer_layout = QVBoxLayout(developer_card)
+    developer_layout.setContentsMargins(12, 10, 12, 12)
+    developer_layout.setSpacing(7)
+    developer_title = QLabel("开发评审")
+    developer_title.setObjectName("railSection")
+    developer_layout.addWidget(developer_title)
     window.developer_button = QPushButton("评审 Word ＋ 原手册…")
     window.developer_button.setToolTip("打开同一个窗口，分别选择开发评审 Word 和被评审的原手册 Word。")
-    rail_layout.addWidget(window.developer_button)
-    developer_hint = QLabel("编号意见＋截图；原手册用于辅助定位")
+    developer_layout.addWidget(window.developer_button)
+    developer_hint = QLabel("编号意见与截图")
     developer_hint.setObjectName("railHint")
     developer_hint.setWordWrap(True)
-    rail_layout.addWidget(developer_hint)
+    developer_layout.addWidget(developer_hint)
+    rail_layout.addWidget(developer_card)
     checks = QHBoxLayout()
     window.select_all_box = SelectAllCheckBox("全选文件")
     window.select_all_box.setTristate(True)
@@ -159,7 +173,7 @@ def build_ui(window, acceptance_delegate):
     checks.addStretch()
     window.remove_checked_button = QPushButton("清除文件")
     window.remove_checked_button.setObjectName("removeChecked")
-    window.remove_checked_button.setToolTip("从列表清除文件的文件，硬盘上的原文件不受影响。")
+    window.remove_checked_button.setToolTip("从列表中清除勾选的文件，硬盘上的原文件不受影响。")
     checks.addWidget(window.remove_checked_button)
     rail_layout.addLayout(checks)
     window.checked_count = QLabel("已选 0 / 0")
@@ -191,7 +205,7 @@ def build_ui(window, acceptance_delegate):
     main_panel = QWidget()
     main = QVBoxLayout(main_panel)
     main.setContentsMargins(24, 22, 24, 18)
-    main.setSpacing(16)
+    main.setSpacing(10)
     stats = QHBoxLayout()
     stats.setSpacing(12)
     window.stat_values = {}
@@ -264,19 +278,12 @@ def build_ui(window, acceptance_delegate):
     window.table.verticalHeader().setDefaultSectionSize(96)
     window.table.verticalHeader().setToolTip("拖动行号之间的边界调整行高。")
     window.table.setItemDelegateForColumn(ACCEPTANCE_COLUMN, acceptance_delegate(window.table))
-    for index, width in enumerate([86, 200, 160, 205, 95, 255, 106, 105, 240, 110]):
+    for index, width in enumerate([72, 145, 115, 145, 75, 245, 106, 105, 240, 110]):
         window.table.setColumnWidth(index, width)
     window.table.setColumnHidden(9, True)  # Reserved export column; Office screenshots are not produced.
     window.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-    window.table.horizontalHeader().setSectionsMovable(True)
-    window.table.horizontalHeader().setToolTip("拖动列边界调整宽度；拖动表头调整列顺序。")
-    # Put the text people are reading inside even the smallest supported window.
-    # Logical column indexes and the exported workbook schema stay unchanged.
-    visual_order = ["评审人", "评审意见", "是否接受", "回复人", "回复内容",
-                    "对应原文／内容", "文件名", "位置", "意见编号", "上下文截图"]
-    header = window.table.horizontalHeader()
-    for visual_index, name in enumerate(visual_order):
-        header.moveSection(header.visualIndex(HEADERS.index(name)), visual_index)
+    window.table.horizontalHeader().setSectionsMovable(False)
+    window.table.horizontalHeader().setToolTip("拖动列边界调整宽度；列顺序与导出的 Excel 一致。")
     table_layout.addWidget(window.table, 1)
     window.message = QLabel("支持拖入文件或文件夹，可混合选择 Word / Excel / PPT。")
     window.message.setWordWrap(False)
@@ -319,8 +326,10 @@ def build_ui(window, acceptance_delegate):
     window.progress = QProgressBar()
     window.progress.setRange(0, 1)
     window.progress.setValue(0)
-    window.progress.setTextVisible(False)
-    window.progress.setMaximumHeight(3)
+    window.progress.setTextVisible(True)
+    window.progress.setFormat("处理进度 %p%")
+    window.progress.setMinimumHeight(22)
+    window.progress.setMaximumHeight(22)
     main.addWidget(window.progress)
     window.workspace_splitter.addWidget(main_panel)
     window.workspace_splitter.setStretchFactor(1, 1)
@@ -336,6 +345,8 @@ def build_ui(window, acceptance_delegate):
         #muted { color: #718397; }
         #offline { color: #12826A; background: #E6F5F0; padding: 8px 13px; border-radius: 14px; }
         #sidebar { background: #152C43; }
+        #sidebar QFrame#railGroup { background: #1b3850; border: 1px solid #2a4a61; border-radius: 10px; }
+        #sidebar QLabel#railSection { color: #f0f8fc; font-weight: 600; }
         #sidebar QLabel { color: #DFE9F2; }
         #sidebar #railHint { color: #90A7BB; font-size: 11px; }
         #sidebar #fileCount { color: #B8D9EA; background: #25445E; padding: 3px 9px; border-radius: 9px; }

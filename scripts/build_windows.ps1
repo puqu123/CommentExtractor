@@ -8,7 +8,7 @@ if (-not (Test-Path -LiteralPath $taskPython)) {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot create Python environment.' }
 }
 if (-not $SkipInstall) {
-    & $taskPython -m pip install -e '.[dev]'
+    & $taskPython -m pip install -e '.[dev,ocr]'
     if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 }
 $appVersion = (& $taskPython -c 'import commentextract; print(commentextract.__version__)').Trim()
@@ -18,18 +18,22 @@ if (-not $distRoot.StartsWith($allowedDistRoot, [StringComparison]::OrdinalIgnor
     throw 'Build output path is outside the workspace distribution directory.'
 }
 $bundleDir = Join-Path $distRoot 'CommentExtractor'
+& $taskPython scripts\collect_dependency_licenses.py
+if ($LASTEXITCODE -ne 0) { throw 'Runtime license collection failed.' }
 & $taskPython -m PyInstaller --noconfirm --clean --windowed --onedir --name CommentExtractor `
     --distpath $distRoot `
     --icon 'commentextract\assets\app.ico' --add-data 'commentextract/assets;commentextract/assets' `
-    --exclude-module pymupdf --exclude-module fitz --exclude-module PIL --exclude-module lxml `
+    --exclude-module pymupdf --exclude-module fitz --exclude-module lxml `
+    --collect-all rapidocr_onnxruntime --collect-data onnxruntime --copy-metadata Pillow `
+    --exclude-module onnxruntime.transformers --exclude-module onnxruntime.quantization --exclude-module onnxruntime.tools `
+    --recursive-copy-metadata rapidocr-onnxruntime `
     --copy-metadata openpyxl `
     --copy-metadata PySide6 --copy-metadata PySide6_Essentials --copy-metadata PySide6_Addons `
     --copy-metadata shiboken6 --copy-metadata defusedxml --copy-metadata et-xmlfile `
     --add-data 'LICENSE;.' --add-data 'THIRD_PARTY_NOTICES.md;.' run_app.py
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-Copy-Item -LiteralPath README.md,LICENSE,THIRD_PARTY_NOTICES.md,CHANGELOG.md,COMPATIBILITY.md,SUPPORT.md -Destination $bundleDir
+Copy-Item -LiteralPath README.md,USAGE.md,LICENSE,THIRD_PARTY_NOTICES.md,CHANGELOG.md,COMPATIBILITY.md,SUPPORT.md -Destination $bundleDir
 Get-Content -LiteralPath USAGE.md -Raw -Encoding UTF8 | Set-Content -LiteralPath (Join-Path $bundleDir 'USAGE.txt') -Encoding UTF8
 Copy-Item -LiteralPath licenses -Destination $bundleDir -Recurse -Force
-$archive = "dist\CommentExtractor-v$appVersion-win64.zip"
-Compress-Archive -LiteralPath $bundleDir -DestinationPath $archive -Force
-Write-Output "Ready: $archive"
+& $taskPython scripts\package_windows.py $bundleDir
+if ($LASTEXITCODE -ne 0) { throw 'Split package creation or 100 MB size check failed.' }

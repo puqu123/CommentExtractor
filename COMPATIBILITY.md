@@ -1,6 +1,12 @@
 # 批注提取兼容性测试与验收
 
-适用范围：v0.2.7（含 v0.2.6 累积用例），`.docx`、`.xlsx`、`.pptx` 及单独入口的开发评审 Word。目标是在公司实际使用的 Office/WPS 文件上做到**主意见、回复、作者和文字不漏不串**，而不是仅做到没有报错。
+适用范围：v0.2.11 预发布版（含之前累积用例），`.docx`、`.xlsx`、`.pptx` 及单独入口的开发评审 Word。`.doc` 的 Microsoft Word 转换单独验证，不计入 OOXML 构造用例成功率。目标是在公司实际使用的 Office/WPS 文件上做到**主意见、回复、作者和文字不漏不串**，而不是仅做到没有报错。
+
+v0.2.8 增补 Excel 无回退辅助扩展恢复、Word 批注及回复图片、三种导出内容模式、多图原图和预览链接、多处匹配分别附页码、旧格式转换失败及源文件不变、横向进度阶段检查。真实生产环境照片中的两份 CE-E206 文件不能带出，尚未确认修复；恢复提示不能当成完整性保证。RapidOCR 和 Windows OCR 的准确率须用实际截图人工比较。
+
+2026-11-05 本地验证：128 项自动检查通过。免安装 EXE 验证了六份 Office 样例、开发评审五条意见／五张原图、两种 OCR、预览链接和 GUI 启动；RapidOCR 单元检查禁止打开网络 socket，打包检查使用不可用代理，仍能识别随包模型。另用本机 Microsoft Word 保存真实旧格式 `.doc` 样例，转换及第 2 页定位通过，原文件哈希未改变。这些记录不能代替公司真实评审文件验收。
+
+拆包后自动检查增至 138 项，新增主包／扩展文件隔离、合并后就绪检查、扩展缺失／不完整／版本不匹配时的界面行为、100 MB 硬上限和发布附件完整性。`python scripts/smoke_split_bundle.py` 从实际 ZIP 解压到全新中文含空格目录，先验证主程序单独运行和 Windows OCR，再验证缺少扩展时保留意见及原图，最后合入扩展验证离线 RapidOCR；两份 ZIP 均要求小于 100,000,000 字节。
 
 ## 什么算通过
 
@@ -49,7 +55,7 @@ Office 使用的兼容分支机制见[微软说明](https://learn.microsoft.com/
 .\.venv\Scripts\python.exe scripts\check_compatibility.py
 
 # 用实际免安装 EXE 导出，再逐条比对 Excel；同时检查源码解析
-.\.venv\Scripts\python.exe scripts\check_compatibility.py --executable .\dist\v0.2.7\CommentExtractor\CommentExtractor.exe
+.\.venv\Scripts\python.exe scripts\check_compatibility.py --executable .\dist\v0.2.11\CommentExtractor\CommentExtractor.exe
 ```
 
 默认每次创建新的 `local_data/兼容性测试_时间_随机编号` 文件夹。`positive`、`recovery`、`negative` 分开统计。已存在输出目录不覆盖。负向测试“按预期失败”不能被写成提取成功。

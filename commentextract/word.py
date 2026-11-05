@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import Comment
+from .models import Comment, Screenshot, IMAGE_EXTENSIONS
 from .ooxml import Package, attr, elements, local, text
 from .word_locations import paragraph_records, word_location
 
@@ -23,6 +23,7 @@ def read_word(path, warnings):
         for comment_part, documents in comment_parts.items():
             prefix = comment_part + "#"
             nodes = elements(package.xml(comment_part), "comment")
+            image_relationships = package.rels(comment_part)
             para_to_id = {}
             for node in nodes:
                 # Word identifies a comment via the paraId of its last paragraph.
@@ -80,7 +81,21 @@ def read_word(path, warnings):
             for node in nodes:
                 cid = attr(node, "id")
                 location, context = anchors.get(cid, ("位置未记录", ""))
+                pictures = []
+                for image in node.iter():
+                    if local(image.tag) not in {"blip", "imagedata"}:
+                        continue
+                    relation = image_relationships.get(attr(image, "embed") or attr(image, "id"))
+                    if relation and relation[0] == "image":
+                        from pathlib import Path
+                        extension = Path(relation[1]).suffix.lower()
+                        try:
+                            pictures.append(Screenshot(f"批注截图_{len(pictures) + 1}" + (extension if extension in IMAGE_EXTENSIONS else ".bin"), package.zip.read(relation[1])))
+                        except Exception:
+                            warnings.append("批注图片无法读取，已保留可读文字。")
+                    else:
+                        warnings.append("批注图片引用无法解析，已保留可读文字，请核对原图。")
                 comments.append(Comment(prefix + cid, attr(node, "author"), text(node),
                                         prefix + parents[cid] if cid in parents else None,
-                                        location, context))
+                                        location, context, pictures))
     return comments

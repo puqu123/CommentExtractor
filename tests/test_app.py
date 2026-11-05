@@ -30,6 +30,10 @@ def wait_for_worker(window):
 def test_only_acceptance_is_editable(application, tmp_path):
     path = make_word(tmp_path / "review.docx")
     window = MainWindow()
+    from commentextract.models import HEADERS
+    header = window.table.horizontalHeader()
+    assert [window.table.horizontalHeaderItem(header.logicalIndex(i)).text() for i in range(header.count())] == HEADERS
+    assert not header.sectionsMovable()
     assert not window.windowIcon().isNull()
     window.add_files([path])
     wait_for_worker(window)
@@ -103,7 +107,7 @@ def test_multiselect_mixed_files_exports_one_workbook_each(application, tmp_path
     assert len(window.output_paths) == 6
     assert not window.dirty
     for source in files:
-        path = output / (source.stem + "_评审意见.xlsx")
+        path = output / (source.stem + "_评审意见提取.xlsx")
         assert path.is_file()
         workbook = load_workbook(path)
         sheet = workbook["评审汇总"]

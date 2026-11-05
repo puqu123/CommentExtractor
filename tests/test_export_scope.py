@@ -76,7 +76,7 @@ def test_separate_export_uses_checked_files_and_keeps_unexported_edits(window, t
     w.separate_export_button.click()
     wait_for_worker(w)
     assert len(w.output_paths) == 1
-    assert "0_评审意见.xlsx" in w.output_paths[0]
+    assert "0_评审意见提取.xlsx" in w.output_paths[0]
     assert len(w.results) == 3
     assert w.dirty
     assert id(w.results[1].issues[0]) in w.dirty_issue_ids

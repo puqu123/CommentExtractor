@@ -44,7 +44,7 @@ def test_merge_preserves_rows_identity_replies_and_duplicate_choice(tmp_path):
     assert results[0].issues[0].acceptance == ""
     assert results[1].issues[0].acceptance == ""
     output = export_result(merged, tmp_path / "out")
-    assert output.name == "A文件_评审意见.xlsx"
+    assert output.name == "A文件_评审意见提取.xlsx"
     workbook = load_workbook(output)
     summary = workbook["评审汇总"]
     assert summary.max_row == 3

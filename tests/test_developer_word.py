@@ -60,8 +60,8 @@ def test_numbered_review_images_continuation_and_reference(tmp_path, monkeypatch
     assert "第 12 页" in first.location and "OCR" in first.location
     assert "补充意见" in first.text
     assert len(first.screenshots) == 2
-    assert "原文匹配候选" in first.context
-    assert "图表标题候选：表 2-1" in second.location
+    assert "匹配到的原文" in first.context
+    assert "截图识别：表 2-1" in second.location
     assert third.location.startswith("位置未确定")
     assert not third.screenshots
     assert any("首条编号前" in w for w in result.warnings)
@@ -73,7 +73,7 @@ def test_numbered_review_images_continuation_and_reference(tmp_path, monkeypatch
     assert sheet["E2"].value == "开发甲"
     assert "补充意见" in sheet["F2"].value
     assert sheet["J2"].hyperlink
-    images = list(output.parent.glob("*_附件/*.png"))
+    images = [p for p in output.parent.glob("*_附件/*.png") if not p.name.endswith("_预览.png")]
     assert len(images) == 3
     assert all(image.read_bytes() == first.screenshots[0].data for image in images)
     assert review.read_bytes() == before
@@ -123,11 +123,11 @@ def test_no_number_is_explicit_failure_and_ambiguous_reference_not_guessed(tmp_p
     assert "未找到编号意见" in extract_file(path, developer=True, ocr=False).error
     paragraph = "接口响应时间不超过 2 秒"
     location, context = match_reference(paragraph, [(paragraph, "第一章", None), (paragraph, "第二章", None)])
-    assert location == "原文存在多处匹配，位置待核对"
+    assert "第一章" in location and "第二章" in location and len(location.splitlines()) == 2
     assert context == ""
     assert explicit_location("第 1 2 页") == "第 12 页"
     assert explicit_location("Page 1 2\n3.2 接口设计") == "第 12 页"
-    assert explicit_location("3 ． 2 接 口 设 计") == "章节候选：3.2 接口设计"
+    assert explicit_location("3 ． 2 接 口 设 计") == "截图识别：3.2 接口设计（待核对）"
 
 
 def test_reference_heading_and_searchable_paragraph_without_fabricated_page(tmp_path, monkeypatch):

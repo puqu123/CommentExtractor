@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import sys
 import traceback
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QItemSelectionModel, QSignalBlocker
 from PySide6.QtGui import QDesktopServices, QFont, QPainter, QColor
@@ -68,13 +66,41 @@ class AcceptanceDelegate(QStyledItemDelegate):
         model.setData(index, editor.currentText())
 
 
+class ScreenshotLabel(QLabel):
+    def __init__(self, data, parent=None):
+        super().__init__(parent)
+        self.data = data
+        self.setToolTip("双击放大截图")
+
+    def mouseDoubleClickEvent(self, event):
+        show_image(self.data, self.window())
+
+
+def show_image(data, parent):
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtWidgets import QScrollArea
+    dialog = QDialog(parent)
+    dialog.setAttribute(Qt.WA_DeleteOnClose)
+    dialog.setWindowTitle("截图原图 · 可滚动查看")
+    dialog.resize(1000, 750)
+    layout = QVBoxLayout(dialog)
+    scroll = QScrollArea()
+    label = QLabel()
+    pixmap = QPixmap()
+    pixmap.loadFromData(data)
+    label.setPixmap(pixmap)
+    scroll.setWidget(label)
+    layout.addWidget(scroll)
+    dialog.open()
+
+
 class Worker(QThread):
     item_ready = Signal(object)
     progress = Signal(int, int, str)
     exported = Signal(str)
     failure = Signal(str)
 
-    def __init__(self, items, output=None, parent=None, options=None, tracked_issue_ids=None, output_filename=None):
+    def __init__(self, items, output=None, parent=None, options=None, tracked_issue_ids=None, output_filename=None, content_mode="both"):
         super().__init__(parent)
         self.items = list(items)
         self.output = output
@@ -87,23 +113,28 @@ class Worker(QThread):
         self.excluded_results = []
         self.scope_label = "全部文件"
         self.output_filename = output_filename
+        self.content_mode = content_mode
 
     def run(self):
         for index, item in enumerate(self.items):
             if self.isInterruptionRequested():
                 break
             name = (item.source.stem if item.sources else item.source.name) if self.output else Path(item).name
-            self.progress.emit(index, len(self.items), name)
+            self.progress.emit(index * 100, len(self.items) * 100, name)
+            from .progress import callback
+            token = callback.set(lambda percent, stage: self.progress.emit(index * 100 + percent, len(self.items) * 100, stage))
             try:
                 if self.output:
                     from .export import export_result
-                    target = str(export_result(item, self.output, filename=self.output_filename)
-                                 if self.output_filename else export_result(item, self.output))
+                    target = str(export_result(item, self.output, filename=self.output_filename, content_mode=self.content_mode)
+                                 if self.output_filename or self.content_mode != "both" else export_result(item, self.output))
                     self.exported_issue_ids.update(self.tracked_issue_ids.get(id(item), {id(issue) for issue in item.issues}))
                     self.exported.emit(target)
                     self.records.append(f"导出成功：{item.source}\n  → {target}")
                 else:
-                    result = extract_file(item, **self.options)
+                    result = extract_file(item, progress=lambda percent, stage: self.progress.emit(index * 100 + percent, len(self.items) * 100, stage), **self.options)
+                    for issue in result.issues:
+                        issue.root.export_mode = getattr(self, "import_content_mode", "both")
                     self.item_ready.emit(result)
                     status = '提取失败' if result.error else ('提取完成（有提示，请核对）' if result.warnings else '提取成功')
                     self.records.append(f"{status}：{result.source}\n  {result.error or str(len(result.issues)) + ' 条意见'}")
@@ -114,7 +145,8 @@ class Worker(QThread):
                 self.records.append(f"处理失败：{name}\n{traceback.format_exc()}")
                 if not self.output:
                     self.item_ready.emit(Extraction(Path(item), error=f"[{detail['code']}] {type(exc).__name__}：{exc}", diagnostics={"error": detail}))
-            self.progress.emit(index + 1, len(self.items), name)
+            self.progress.emit((index + 1) * 100, len(self.items) * 100, name)
+            callback.reset(token)
 
 
 class MainWindow(QMainWindow):
@@ -143,7 +175,8 @@ class MainWindow(QMainWindow):
         self.file_list.itemSelectionChanged.connect(self.update_counts)
         self.file_list.itemChanged.connect(lambda _item: self.update_counts())
         self.select_all_box.stateChanged.connect(self.toggle_all_files)
-        self.table.cellDoubleClicked.connect(self.open_cell_text)
+        self.table.cellDoubleClicked.connect(lambda row, column: self.open_cell_text(row, column) if column != 9 else None)
+        self.table.cellClicked.connect(lambda row, column: self.open_cell_text(row, column) if column == 9 else None)
         self.table.itemChanged.connect(self.item_changed)
         self.search.textChanged.connect(self.filter_rows)
         self.acceptance_filter.currentTextChanged.connect(self.filter_rows)
@@ -230,7 +263,11 @@ class MainWindow(QMainWindow):
         if not files:
             QMessageBox.information(self, "没有新文件", "未找到新的受支持文件。\n" + "\n".join(f"{p.name}：{r}" for p, r in skipped))
             return
-        worker = Worker(files, parent=self, options=options)
+        settings = dict(options or {})
+        content_mode = settings.pop("content_mode", "both")
+        settings["word_pages"] = True
+        worker = Worker(files, parent=self, options=settings)
+        worker.import_content_mode = content_mode
         worker.skipped = skipped
         self.start_worker(worker)
 
@@ -238,6 +275,8 @@ class MainWindow(QMainWindow):
         self.worker = worker
         self.output_paths = []
         self.failures = []
+        self.progress.setRange(0, max(1, len(worker.items) * 100))
+        self.progress.setValue(0)
         worker.item_ready.connect(self.add_result)
         worker.progress.connect(self.update_progress)
         worker.exported.connect(self.output_paths.append)
@@ -265,9 +304,11 @@ class MainWindow(QMainWindow):
         self.file_list.addItem(item)
 
     def update_progress(self, done, total, name):
+        if self.progress.maximum() == total:
+            done = max(done, self.progress.value())
         self.progress.setRange(0, total)
         self.progress.setValue(done)
-        self.status.setText(f"{done}/{total} · {name}")
+        self.status.setText(name)
 
     def cancel(self):
         if self.worker:
@@ -294,13 +335,7 @@ class MainWindow(QMainWindow):
                     f"成功 {len(self.output_paths)} 份，导出失败 {len(self.failures)} 份，未处理 {remaining} 份；"
                     f"另有 {len(excluded)} 份源文件提取失败，未导出。")
             self.batch_history.append(text)
-            report_note = ""
-            try:
-                report = Path(worker.output) / ("批量导出结果_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:6] + ".txt")
-                report.write_text(self.report_text(), encoding="utf-8-sig")
-                report_note = f"\n逐文件结果：{report}"
-            except OSError as exc:
-                report_note = f"\n结果报告无法保存：{exc}。可点击“处理记录”查看。"
+            report_note = "\n逐文件结果可在“处理记录”中查看。"
             if self.failures or excluded or interrupted:
                 errors = self.failures + [f"{r.source.name}：{r.error}" for r in excluded]
                 QMessageBox.warning(self, "批量导出结果", text + "\n" + "\n".join(errors) + report_note)
@@ -396,7 +431,7 @@ class MainWindow(QMainWindow):
         self.file_title.setText((result.source.stem if result.sources else result.source.name) if result else "等待添加文件")
         self.file_title.setToolTip(str(result.source) if result else "")
         if result:
-            self.table.setColumnHidden(9, not any(issue.root.screenshots for issue in result.issues))
+            self.table.setColumnHidden(9, not any(issue.screenshots for issue in result.issues))
             self.table.setRowCount(len(result.issues))
             for row, issue in enumerate(result.issues):
                 for column, value in enumerate(issue.values(result.source.name)):
@@ -478,7 +513,7 @@ class MainWindow(QMainWindow):
         text.setReadOnly(True)
         text.setPlainText(str(issue.values(result.source.name)[column]))
         layout.addWidget(text)
-        if column == HEADERS.index("上下文截图") and issue.root.screenshots:
+        if column == HEADERS.index("上下文截图") and issue.screenshots:
             from PySide6.QtCore import QTemporaryDir
             from PySide6.QtGui import QPixmap
             from PySide6.QtWidgets import QLabel, QScrollArea, QWidget
@@ -488,20 +523,20 @@ class MainWindow(QMainWindow):
             images_layout = QVBoxLayout(panel)
             temp = QTemporaryDir()
             dialog.screenshot_temp = temp
-            for index, image in enumerate(issue.root.screenshots, 1):
+            for index, image in enumerate(issue.screenshots, 1):
                 pixmap = QPixmap()
                 pixmap.loadFromData(image.data)
                 label = QLabel(image.name)
                 images_layout.addWidget(label)
                 if not pixmap.isNull():
-                    preview = QLabel()
+                    preview = ScreenshotLabel(image.data)
                     preview.setPixmap(pixmap.scaledToWidth(720, Qt.SmoothTransformation) if pixmap.width() > 720 else pixmap)
                     images_layout.addWidget(preview)
                 path = Path(temp.path()) / (str(index) + Path(image.name).suffix)
                 path.write_bytes(image.data)
                 open_image = QPushButton("打开原图 " + str(index))
                 open_image.setEnabled(path.suffix.lower() in IMAGE_EXTENSIONS)
-                open_image.clicked.connect(lambda _checked=False, p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p))))
+                open_image.clicked.connect(lambda _checked=False, data=image.data: show_image(data, dialog))
                 images_layout.addWidget(open_image)
             scroll.setWidget(panel)
             layout.addWidget(scroll, 3)
@@ -536,7 +571,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "没有可导出数据", "请勾选至少一份成功提取的文件；提取失败的文件不会导出为空表。")
             return
         names = {suggest_group_name([result]) for result in results}
-        suggested = (next(iter(names)) + "_评审意见.xlsx") if len(names) == 1 else "评审意见汇总.xlsx"
+        suggested = (next(iter(names)) + "_评审意见提取.xlsx") if len(names) == 1 else "评审意见提取汇总.xlsx"
         filename = choose_summary_file(self, suggested)
         if not filename:
             return

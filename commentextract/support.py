@@ -17,6 +17,7 @@ ERRORS = {
     "CE-E204": "单个部件超过大小限制", "CE-E205": "文件关系路径无效",
     "CE-E206": "存在尚不支持且没有可用回退的扩展",
     "CE-E207": "PPT 未恢复到可读取批注，请核对未读部件",
+    "CE-E208": "Microsoft Word 转换或页码读取不可用",
     "CE-E301": "不支持的文件格式或导入模式", "CE-E302": "未识别到开发评审编号",
     "CE-E401": "处理超时", "CE-E900": "尚未分类的内部异常",
 }
@@ -32,7 +33,7 @@ MESSAGES = {
 }
 APP_FILES = {name + ".py" for name in ("app", "extract", "word", "word_locations", "excel", "powerpoint",
              "ooxml", "models", "export", "merge", "inputs", "developer_word", "ocr", "support", "cli",
-             "developer_dialog", "ui", "diagnostics", "__init__")}
+             "developer_dialog", "ui", "diagnostics", "word_layout", "progress", "ocr_addon", "__init__")}
 KINDS = {"word_comments", "word_reply_links", "excel_comments", "excel_threads", "ppt_comments",
          "people", "document", "workbook", "presentation", "styles", "relationships", "other_xml"}
 NODE_NAMES = {"comment": "comment", "threadedComment": "threaded_comment", "cm": "ppt_comment",
@@ -55,10 +56,12 @@ def exception_details(exc):
         for fragment, candidate in [("超过 128 MB 的单个部件", "CE-E204"), ("文件关系路径无效", "CE-E205"),
                                     ("没有可用的回退分支", "CE-E206"), ("未找到编号意见", "CE-E302"),
                                     ("PPT 无法恢复可读取的批注", "CE-E207"),
-                                    ("旧版 Office 文件请先", "CE-E301"), ("模式仅支持 .docx", "CE-E301")]:
+                                    (".xls/.ppt 请先", "CE-E301"), ("旧版 Office 文件请先", "CE-E301"), ("模式仅支持 .docx", "CE-E301")]:
             if fragment in value:
                 code = candidate
                 break
+    if isinstance(exc, RuntimeError) and "转换或页码读取未完成" in str(exc):
+        code = "CE-E208"
     sites = []
     for frame in traceback.extract_tb(exc.__traceback__):
         filename = Path(frame.filename).name
@@ -80,7 +83,7 @@ def warning_codes(warnings):
             code = "CE-I204"
         elif "部分提取：" in value:
             code = "CE-W201"
-        elif "兼容回退分支" in value:
+        elif "兼容回退分支" in value or "兼容恢复：" in value:
             code = "CE-W203"
         elif "重复批注编号" in value or "重复的批注编号" in value:
             code = "CE-W305"

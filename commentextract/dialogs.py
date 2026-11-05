@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QFileDialog
 
 def choose_files(parent):
     files, _ = QFileDialog.getOpenFileNames(
-        parent, "选择评审文件", "", "评审文件 (*.docx *.xlsx *.pptx)")
+        parent, "选择评审文件", "", "评审文件 (*.doc *.docx *.xlsx *.pptx)")
     return files
 
 

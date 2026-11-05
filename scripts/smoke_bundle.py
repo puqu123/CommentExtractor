@@ -1,5 +1,6 @@
 """Verify the bundled application without relying on an installed target Python."""
 import os
+import argparse
 import subprocess
 import sys
 import tempfile
@@ -14,7 +15,11 @@ from tests.samples import create_samples, make_word
 from scripts.make_developer_samples import make_developer_samples
 
 if __name__ == "__main__":
-    executable = Path(sys.argv[1] if len(sys.argv) > 1 else f"dist/v{__version__}/CommentExtractor/CommentExtractor.exe").resolve()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("executable", nargs="?", default=f"dist/v{__version__}/CommentExtractor/CommentExtractor.exe")
+    parser.add_argument("--without-enhanced", action="store_true", help="Validate the main program without the optional addon")
+    args = parser.parse_args()
+    executable = Path(args.executable).resolve()
     internal = executable.parent / "_internal"
     forbidden = [p for p in internal.rglob("*") if p.name.lower().startswith(("pymupdf", "fitz", "mupdf"))]
     assert not forbidden, forbidden
@@ -56,9 +61,24 @@ if __name__ == "__main__":
         assert sheet["E2"].value == "开发甲"
         assert "截图后的补充文字" in sheet["F2"].value
         assert sheet["J2"].hyperlink
-        assert (developer_workbook.parent / unquote(sheet["J2"].hyperlink.target)).is_dir()
-        assert len(list(developer_outputs.glob("*_附件/*.png"))) == 5
+        assert (developer_workbook.parent / unquote(sheet["J2"].hyperlink.target)).is_file()
+        assert len([p for p in developer_outputs.glob("*_附件/*.png") if not p.name.endswith("_预览.png")]) == 5
         workbook.close()
+        if not args.without_enhanced:
+            rapid_outputs = root / "rapid-output"
+            # Deliberately unusable proxies: all required weights must be local.
+            offline_environment = dict(environment, HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9")
+            subprocess.run([str(executable), "--cli", str(developer_inputs / "02_开发评审_五条意见.docx"),
+                            "--developer-word", "--reference", str(developer_inputs / "01_被评审原文_虚构.docx"),
+                            "--ocr-backend", "rapidocr", "-o", str(rapid_outputs)],
+                           check=True, timeout=120, env=offline_environment, cwd=temporary)
+            workbook = load_workbook(next(rapid_outputs.glob("*.xlsx")))
+            sheet = workbook["评审汇总"]
+            assert "第 12 页" in sheet["C2"].value
+            assert "接口设计" in sheet["C3"].value
+            assert "接口响应时间" in sheet["D2"].value
+            assert len(sheet._images) == 4
+            workbook.close()
         private_name = "DO_NOT_DISCLOSE_FILENAME"
         diagnostic_source = make_word(inputs / (private_name + ".docx"))
         diagnosis = subprocess.run([str(executable), "--cli", str(diagnostic_source), "--diagnostics-only"],
@@ -79,4 +99,5 @@ if __name__ == "__main__":
         finally:
             process.terminate()
             process.wait(timeout=15)
-    print("Bundle smoke test passed: 6 Office workbooks, numbered Word with 5 issues/5 images, private-safe diagnostics, GUI startup; no PDF runtime.")
+    engines = "Windows OCR only (main program)" if args.without_enhanced else "Windows and bundled RapidOCR"
+    print(f"Bundle smoke test passed: 6 Office workbooks, numbered Word with 5 issues/5 images, {engines}, private-safe diagnostics, GUI startup; no PDF runtime.")

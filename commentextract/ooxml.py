@@ -28,7 +28,7 @@ SUPPORTED_MC_NAMESPACES = {
 }
 
 
-def compatible_xml(data, warnings=None):
+def compatible_xml(data, warnings=None, part=""):
     root = ET.fromstring(data)
     if not any(node.tag == "{" + MC + "}AlternateContent" for node in root.iter()):
         return root
@@ -69,7 +69,15 @@ def compatible_xml(data, warnings=None):
                         warnings.append("部分内容使用兼容回退分支，当前未支持较新的扩展；请对照 Office/WPS 核对文字及截图。")
                     break
             if chosen is None:
-                raise ValueError("包含尚不支持的兼容内容，且没有可用的回退分支；不能确认批注完整性。")
+                choices = [branch for branch in child if branch.tag == "{" + MC + "}Choice"]
+                ancillary = part.startswith("xl/worksheets/") or part in {"xl/workbook.xml", "xl/styles.xml"}
+                readable = choices and any(local(n.tag) in {"t", "comment", "threadedComment", "cm", "reply"} for n in choices[0].iter())
+                if choices and (ancillary or readable):
+                    chosen = choices[0]
+                    if warnings is not None:
+                        warnings.append("兼容恢复：保留较新扩展中的可读内容；扩展显示效果或定位信息需核对，未将其视为完整支持。")
+                else:
+                    raise ValueError("包含尚不支持的兼容内容，且没有可用的回退分支；不能确认批注完整性。")
             select(chosen)
             node.remove(child)
             for offset, item in enumerate(list(chosen)):
@@ -126,11 +134,14 @@ class Package:
 
     def xml(self, part: str):
         try:
-            root = compatible_xml(self.zip.read(part), self.warnings)
+            root = compatible_xml(self.zip.read(part), self.warnings, part)
         except Exception:
             note_xml(self, part, failed=True)
             raise
         note_xml(self, part, root)
+        from .progress import stage
+        if self.warnings is not None:
+            stage(25, "读取文档和批注结构")
         return root
 
     def rels(self, part: str):

@@ -78,9 +78,9 @@ def test_range_normalization_and_multi_cell_excerpt(tmp_path):
 
 
 def test_filename_does_not_silently_filter_source(tmp_path):
-    source = make_excel(tmp_path / "原始_评审意见.xlsx")
+    source = make_excel(tmp_path / "原始_评审意见提取.xlsx")
     generated = export_result(extract_file(source), tmp_path)
-    corrupt = tmp_path / "损坏_评审意见.xlsx"
+    corrupt = tmp_path / "损坏_评审意见提取.xlsx"
     corrupt.write_bytes(b"invalid")
     pdf = tmp_path / "removed.pdf"
     pdf.write_bytes(b"not supported")
@@ -109,13 +109,17 @@ def test_six_inputs_one_corrupt_reports_exact_missing_file(tmp_path, notices, mo
     assert len(window.output_paths) == 5
     assert "成功 5 份" in window.status.text()
     assert "1 份源文件提取失败" in window.status.text()
-    report = next(output.glob("批量导出结果_*.txt")).read_text(encoding="utf-8-sig")
+    report = window.report_text()
+    assert not list(output.glob("批量导出结果_*.txt"))
     assert all(str(p) in report for p in files)
     assert "BadZipFile" in report
     window.close()
 
 
 def test_twelve_same_stem_inputs_have_twelve_outputs(tmp_path, notices, monkeypatch):
+    # This test covers batch naming, not Word pagination. Real Word startup for
+    # twelve synthetic files exceeds the GUI test's short worker deadline.
+    monkeypatch.setattr("commentextract.word_layout.read_layout", lambda *args, **kwargs: ([], None))
     files = []
     for index in range(12):
         directory = tmp_path / str(index)
@@ -153,7 +157,8 @@ def test_single_write_failure_does_not_stop_batch(tmp_path, notices, monkeypatch
     wait_for_worker(window)
     assert len(window.output_paths) == 5
     assert "导出失败 1 份" in window.status.text()
-    report = next(output.glob("批量导出结果_*.txt")).read_text(encoding="utf-8-sig")
+    report = window.report_text()
+    assert not list(output.glob("批量导出结果_*.txt"))
     assert files[1].name in report and "PermissionError" in report
     assert len(list(output.glob("*.xlsx"))) == 5
     window.close()
@@ -173,7 +178,7 @@ def test_five_file_summary_uses_native_save_api_and_source_column(tmp_path, noti
     def select_file(parent, title, suggested, filters, options):
         assert parent is window
         assert "汇总导出" in title
-        assert suggested == "A_评审意见.xlsx"
+        assert suggested == "A_评审意见提取.xlsx"
         assert filters == "Excel 文件 (*.xlsx)"
         assert options & QFileDialog.DontConfirmOverwrite
         assert not options & QFileDialog.DontUseNativeDialog
@@ -225,6 +230,8 @@ def test_many_merge_warnings_cannot_collapse_table_at_minimum_window_size(tmp_pa
     assert window.table.viewport().height() >= 250
     assert window.table.rowAt(100) >= 0
     opinion_column = HEADERS.index("评审意见")
+    assert window.table.columnViewportPosition(opinion_column) < window.table.viewport().width()
+    window.table.scrollToItem(window.table.item(0, opinion_column))
     assert window.table.columnViewportPosition(opinion_column) + window.table.columnWidth(opinion_column) <= window.table.viewport().width()
     assert window.message.height() <= window.message.fontMetrics().height() * 2
     assert window.table.verticalHeader().isVisible()

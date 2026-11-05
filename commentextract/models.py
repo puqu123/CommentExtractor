@@ -29,6 +29,7 @@ class Comment:
     location: str = ""
     context: str = ""
     screenshots: List[Screenshot] = field(default_factory=list)
+    export_mode: str = "both"
 
 
 @dataclass
@@ -39,13 +40,17 @@ class Issue:
     acceptance: str = ""
     source: Optional[Path] = None
 
+    @property
+    def screenshots(self):
+        return [image for comment in [self.root] + self.replies for image in comment.screenshots]
+
     def values(self, filename: str = "") -> list:
         authors = list(dict.fromkeys(c.author or "未署名" for c in self.replies))
         replies = "\n\n".join(f"{i}. {c.author or '未署名'}：{c.text}" for i, c in enumerate(self.replies, 1))
         return [self.id, self.source.name if self.source else filename,
                 self.root.location, self.root.context, self.root.author,
                 self.root.text, self.acceptance, "、".join(authors), replies,
-                "\n".join(image.name for image in self.root.screenshots)]
+                "\n".join(image.name for image in self.screenshots)]
 
 
 @dataclass

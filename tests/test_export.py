@@ -16,8 +16,8 @@ def test_export_schema_validation_and_unique_names(tmp_path):
     before = result.source.read_bytes()
     path = export_result(result, tmp_path / "output")
     second = export_result(result, tmp_path / "output")
-    assert path.name == "来源_评审意见.xlsx"
-    assert second.name == "来源_评审意见_2.xlsx"
+    assert path.name == "来源_评审意见提取.xlsx"
+    assert second.name == "来源_评审意见提取_2.xlsx"
     assert result.source.read_bytes() == before
     workbook = load_workbook(path)
     assert workbook.sheetnames == ["评审汇总", "提取报告"]

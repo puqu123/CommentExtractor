@@ -40,6 +40,7 @@ foreach ($item in $items) {
         if ($null -ne $bitmap) { $bitmap.Dispose() }
         if ($null -ne $stream) { $stream.Dispose() }
     }
+    [IO.File]::WriteAllText($OutputFile, (ConvertTo-Json -InputObject @($results) -Depth 5 -Compress), [Text.UTF8Encoding]::new($false))
 }
 $json = ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
 [IO.File]::WriteAllText($OutputFile, $json, [Text.UTF8Encoding]::new($false))

@@ -33,19 +33,15 @@ def explicit_location(value):
         return "、".join("第 " + page + " 页" for page in pages)
     # OCR often inserts spaces between Chinese characters. Keep original content
     # elsewhere, only normalize candidate anchors for recognition.
-    for line in lines:
-        compact = normalize_ocr_line(line)
-        if HEADING.fullmatch(compact):
-            return "章节候选：" + compact
-    for line in lines:
-        compact = normalize_ocr_line(line)
-        if CAPTION.fullmatch(compact):
-            return "图表标题候选：" + compact
+    for pattern in (HEADING, CAPTION):
+        found = [normalize_ocr_line(line) for line in lines if pattern.fullmatch(normalize_ocr_line(line))]
+        if found:
+            return "\n".join("截图识别：" + line + "（待核对）" for line in dict.fromkeys(found))
     return ""
 
 
 def match_reference(value, reference):
-    """Require substantial exact normalized overlap; refuse ambiguous matches."""
+    """Retain every substantial match, including repeated source passages."""
     needles = [normalized(line) for line in value.splitlines() if len(normalized(line)) >= 8]
     matches = []
     approximate = False
@@ -65,22 +61,21 @@ def match_reference(value, reference):
             if scores:
                 scored.append((max(scores), record))
         scored.sort(key=lambda item: item[0], reverse=True)
-        if scored and scored[0][0] >= 0.88 and (len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.08):
-            matches = [scored[0][1]]
+        if scored and scored[0][0] >= 0.88:
+            matches = [record for score, record in scored if score >= max(0.88, scored[0][0] - 0.03)]
             approximate = True
     # One paragraph can match more than one OCR line; one actual reference
     # paragraph appearing twice is still ambiguous and must not be collapsed.
     if len(matches) == 1:
         paragraph, title, level = matches[0]
         if not title and CAPTION.fullmatch(paragraph):
-            return "原文图表标题候选：" + paragraph, paragraph
-        return word_location(title, paragraph, label="原文相似匹配候选" if approximate else "原文匹配候选"), paragraph
-    # Multiple lines in one screenshot often identify a whole section. Retain
-    # only the shared chapter, rather than arbitrarily picking a paragraph.
-    titles = {title for _, title, _ in matches}
-    if len(matches) > 1 and len(titles) == 1 and "" not in titles:
-        return "原文匹配候选：" + next(iter(titles)) + "（多处匹配）", ""
-    return ("原文存在多处匹配，位置待核对", "") if matches else ("", "")
+            return "原文图表标题：" + paragraph, paragraph
+        return word_location(title, paragraph, label="相似文字匹配（待核对）" if approximate else "原文匹配"), paragraph
+    if matches:
+        label = "相似文字匹配（待核对）" if approximate else "原文匹配"
+        locations = [word_location(title, paragraph, label=label) for paragraph, title, _ in matches]
+        return "\n".join(dict.fromkeys(locations)), ""
+    return "", ""
 
 
 def _numbered_paragraphs(package, document):
@@ -130,7 +125,7 @@ def _numbered_paragraphs(package, document):
     return result
 
 
-def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True):
+def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, ocr_backend="windows"):
     comments = []
     reference_records = []
     if reference:
@@ -190,9 +185,9 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True):
             raise ValueError("未找到编号意见。请使用 1、/1./1）或 Word 顶层自动编号，每条意见从新段落开始。")
     images = [image for comment in comments for image in comment.screenshots]
     if ocr:
-        from .ocr import recognize_images
+        from .ocr import recognize_images, recognize_images_rapid
         try:
-            recognize_images(images, warnings)
+            (recognize_images_rapid if ocr_backend == "rapidocr" else recognize_images)(images, warnings)
         except Exception as exc:
             warnings.append(f"截图识别失败：{type(exc).__name__}：{exc}；意见和原图仍保留。")
     for index, comment in enumerate(comments, 1):
@@ -207,6 +202,8 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True):
                                or "图表标题" in matched_location or "（多处匹配）" in matched_location)
         if visible.startswith("第 "):
             comment.location = visible + "（截图 OCR，待核对）"
+            if matched_location:
+                comment.location += "\n" + matched_location
         elif reference_has_title:
             comment.location = matched_location
         else:
@@ -223,7 +220,7 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True):
             comment.location = f"位置未确定 · 评审第 {index} 条" + ("，见截图" if comment.screenshots else "")
         sections = []
         if matched_context:
-            sections.append("原文匹配候选：\n" + matched_context)
+            sections.append("匹配到的原文：\n" + matched_context)
         if ocr_text:
             sections.append("截图 OCR（请核对原图）：\n" + ocr_text)
         comment.context = "\n\n".join(sections)
