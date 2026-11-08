@@ -12,7 +12,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 
-from .models import HEADERS, ACCEPTANCE, ACCEPTANCE_COLUMN, IMAGE_EXTENSIONS
+from .models import HEADERS, ACCEPTANCE, ACCEPTANCE_COLUMN, SCREENSHOT_COLUMN, CONTEXT_COLUMN, IMAGE_EXTENSIONS
 
 INVALID_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -79,7 +79,7 @@ def export_result(result, output_dir, filename=None, content_mode="both"):
             if issue.acceptance not in ACCEPTANCE:
                 raise ValueError("是否接受只能填写：是、否、重复，或留空。")
             for column, value in enumerate(issue.values(result.source.name), 1):
-                if column == 4 and issue_mode == "images" and issue.screenshots:
+                if column == CONTEXT_COLUMN + 1 and issue_mode == "images" and issue.screenshots:
                     value = ""
                 set_text(summary.cell(row, column), value)
             if issue.screenshots and issue_mode != "text":
@@ -123,7 +123,7 @@ def export_result(result, output_dir, filename=None, content_mode="both"):
                     thumbnail = ExcelImage(thumbnail_data)
                     from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
                     from openpyxl.drawing.xdr import XDRPositiveSize2D
-                    thumbnail.anchor = OneCellAnchor(_from=AnchorMarker(col=9, row=row-1, rowOff=20*9525),
+                    thumbnail.anchor = OneCellAnchor(_from=AnchorMarker(col=SCREENSHOT_COLUMN, row=row-1, rowOff=20*9525),
                                                     ext=XDRPositiveSize2D(int(thumbnail.width*9525), int(thumbnail.height*9525)))
                     summary.add_image(thumbnail)
                 set_text(cell, f"查看截图（{len(image_names)}张）")
@@ -132,7 +132,7 @@ def export_result(result, output_dir, filename=None, content_mode="both"):
                 for image in originals:
                     image.close()
             elif issue_mode == "text":
-                set_text(summary.cell(row, 10), "")
+                set_text(summary.cell(row, SCREENSHOT_COLUMN + 1), "")
         validation = DataValidation(type="list", formula1='"' + ",".join(ACCEPTANCE[1:]) + '"', allow_blank=True)
         validation.errorTitle = "请选择接受情况"
         validation.error = "请选择：是、否、重复；也可以留空。"
@@ -169,7 +169,9 @@ def export_result(result, output_dir, filename=None, content_mode="both"):
                 row = report.max_row + 1
                 set_text(report.cell(row, 1), issue.id)
                 set_text(report.cell(row, 2), str(issue.source or result.source))
-        widths = {"评审汇总": [14, 38, 28, 48, 16, 52, 16, 22, 60, 18], "提取报告": [22, 100]}
+        source_types = {Path(p).suffix.lower() for p in (result.sources or [result.source])}
+        location_width = 16 if source_types == {".xlsx"} else 32
+        widths = {"评审汇总": [14, 38, location_width, 48, 18, 16, 52, 16, 22, 60], "提取报告": [22, 100]}
         for sheet in workbook:
             sheet.freeze_panes = "A2"
             sheet.auto_filter.ref = sheet.dimensions

@@ -43,9 +43,9 @@ if __name__ == "__main__":
             assert list(sheet.data_validations.dataValidation)[0].formula1 == '"是,否,重复"'
             issues += sheet.max_row - 1
             for row in sheet.iter_rows(min_row=2):
-                assert row[6].value in (None, "")
-                if row[9].hyperlink:
-                    assert (path.parent / unquote(row[9].hyperlink.target)).is_file()
+                assert row[7].value in (None, "")
+                if row[4].hyperlink:
+                    assert (path.parent / unquote(row[4].hyperlink.target)).is_file()
             workbook.close()
         assert issues == 6, issues
         developer_inputs, _ = make_developer_samples(root / "developer-input")
@@ -58,10 +58,10 @@ if __name__ == "__main__":
         workbook = load_workbook(developer_workbook)
         sheet = workbook["评审汇总"]
         assert sheet.max_row == 6
-        assert sheet["E2"].value == "开发甲"
-        assert "截图后的补充文字" in sheet["F2"].value
-        assert sheet["J2"].hyperlink
-        assert (developer_workbook.parent / unquote(sheet["J2"].hyperlink.target)).is_file()
+        assert sheet["F2"].value == "开发甲"
+        assert "截图后的补充文字" in sheet["G2"].value
+        assert sheet["E2"].hyperlink
+        assert (developer_workbook.parent / unquote(sheet["E2"].hyperlink.target)).is_file()
         assert len([p for p in developer_outputs.glob("*_附件/*.png") if not p.name.endswith("_预览.png")]) == 5
         workbook.close()
         if not args.without_enhanced:

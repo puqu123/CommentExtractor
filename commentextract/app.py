@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 
 from . import __version__
 from .extract import extract_file
-from .models import ACCEPTANCE, ACCEPTANCE_COLUMN, CONTEXT_COLUMN, HEADERS
+from .models import ACCEPTANCE, ACCEPTANCE_COLUMN, CONTEXT_COLUMN, SCREENSHOT_COLUMN, HEADERS
 from .merge import merge_results, suggest_group_name
 from .ui import build_ui, app_icon
 from .dialogs import choose_files, choose_directory, choose_summary_file
@@ -175,8 +175,8 @@ class MainWindow(QMainWindow):
         self.file_list.itemSelectionChanged.connect(self.update_counts)
         self.file_list.itemChanged.connect(lambda _item: self.update_counts())
         self.select_all_box.stateChanged.connect(self.toggle_all_files)
-        self.table.cellDoubleClicked.connect(lambda row, column: self.open_cell_text(row, column) if column != 9 else None)
-        self.table.cellClicked.connect(lambda row, column: self.open_cell_text(row, column) if column == 9 else None)
+        self.table.cellDoubleClicked.connect(lambda row, column: self.open_cell_text(row, column) if column != SCREENSHOT_COLUMN else None)
+        self.table.cellClicked.connect(lambda row, column: self.open_cell_text(row, column) if column == SCREENSHOT_COLUMN else None)
         self.table.itemChanged.connect(self.item_changed)
         self.search.textChanged.connect(self.filter_rows)
         self.acceptance_filter.currentTextChanged.connect(self.filter_rows)
@@ -431,7 +431,7 @@ class MainWindow(QMainWindow):
         self.file_title.setText((result.source.stem if result.sources else result.source.name) if result else "等待添加文件")
         self.file_title.setToolTip(str(result.source) if result else "")
         if result:
-            self.table.setColumnHidden(9, not any(issue.screenshots for issue in result.issues))
+            self.table.setColumnHidden(SCREENSHOT_COLUMN, not any(issue.screenshots for issue in result.issues))
             self.table.setRowCount(len(result.issues))
             for row, issue in enumerate(result.issues):
                 for column, value in enumerate(issue.values(result.source.name)):

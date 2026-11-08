@@ -194,8 +194,8 @@ def test_five_file_summary_uses_native_save_api_and_source_column(tmp_path, noti
     assert [c.value for c in sheet[1]] == HEADERS
     assert [sheet.cell(r, 2).value for r in range(2, 7)] == [p.name for p in files]
     assert sheet.max_row == 6
-    assert "G2:G6" in str(list(sheet.data_validations.dataValidation)[0].sqref)
-    assert "!G:G" in workbook["提取报告"]["B4"].value
+    assert "H2:H6" in str(list(sheet.data_validations.dataValidation)[0].sqref)
+    assert "!H:H" in workbook["提取报告"]["B4"].value
     workbook.close()
     window.close()
 

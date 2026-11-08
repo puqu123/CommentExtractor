@@ -56,7 +56,7 @@ def test_export_corruption_fails_even_when_extraction_is_correct(tmp_path, monke
     def broken_export(result, output):
         target = export_result(result, output)
         workbook = load_workbook(target)
-        workbook["评审汇总"]["F2"] = "故意模拟导出缺字"
+        workbook["评审汇总"]["G2"] = "故意模拟导出缺字"
         workbook.save(target)
         workbook.close()
         return target

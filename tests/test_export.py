@@ -24,13 +24,13 @@ def test_export_schema_validation_and_unique_names(tmp_path):
     sheet = workbook["评审汇总"]
     assert [c.value for c in sheet[1]] == HEADERS
     assert sheet.max_column == 10
-    assert sheet["G2"].value == "是"
+    assert sheet["H2"].value == "是"
     assert sheet.freeze_panes == "A2"
     validation = list(sheet.data_validations.dataValidation)[0]
     assert validation.formula1 == '"是,否,重复"'
     assert validation.showErrorMessage
-    assert "答复人乙" in sheet["I2"].value
-    assert "补充测试环境和并发数量" in sheet["I2"].value
+    assert "答复人乙" in sheet["J2"].value
+    assert "补充测试环境和并发数量" in sheet["J2"].value
     workbook.close()
 
 
@@ -40,9 +40,9 @@ def test_export_literal_formula_long_text_and_controls(tmp_path):
     path = export_result(result, tmp_path / "out")
     workbook = load_workbook(path, data_only=False)
     sheet = workbook["评审汇总"]
-    assert sheet["E2"].data_type == "s"
     assert sheet["F2"].data_type == "s"
-    assert sheet["F2"].value == "=1+1"
+    assert sheet["G2"].data_type == "s"
+    assert sheet["G2"].value == "=1+1"
     assert (path.parent / unquote(sheet["D2"].hyperlink.target)).read_text(encoding="utf-8") == "x" * 40000
     workbook.close()
 

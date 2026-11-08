@@ -49,18 +49,19 @@ def test_image_modes_keep_review_and_replies_and_readable_gallery(tmp_path, mode
     path = export_result(result, tmp_path / mode, content_mode=mode)
     workbook = load_workbook(path)
     sheet = workbook["评审汇总"]
-    assert sheet["F2"].value == "评审正文"
-    assert "回复正文" in sheet["I2"].value
+    assert sheet["G2"].value == "评审正文"
+    assert "回复正文" in sheet["J2"].value
     assert sheet.row_dimensions[2].height == 60
     assert sheet["D2"].value == (None if mode == "images" else "已识别截图文字")
     if mode == "text":
-        assert sheet["J2"].value is None
+        assert sheet["E2"].value is None
         assert not sheet._images
         assert not list(path.parent.glob("*_附件"))
     else:
         assert len(sheet._images) == 1
-        assert sheet["J2"].value == "查看截图（2张）"
-        preview = path.parent / sheet["J2"].hyperlink.target
+        assert sheet._images[0].anchor._from.col == 4  # Screenshot follows source content.
+        assert sheet["E2"].value == "查看截图（2张）"
+        preview = path.parent / sheet["E2"].hyperlink.target
         with Image.open(preview) as gallery:
             assert gallery.size == (800, 820)  # linked image retains original detail
         originals = sorted(p for p in preview.parent.glob("*.png") if not p.name.endswith("_预览.png"))
@@ -199,6 +200,78 @@ def test_visible_page_does_not_hide_all_reference_matches(tmp_path, monkeypatch)
     result = extract_file(path, developer=True, reference=reference)
     assert not result.error
     location = result.issues[0].root.location
-    assert location.startswith("第 5 页")
+    assert "页码未获取" in location
     assert "6.1 安装校验" in location and "8.2 升级校验" in location
 
+
+def test_multiple_screenshots_use_body_locations_not_toc(tmp_path, monkeypatch):
+    from docx import Document
+    from docx.enum.style import WD_STYLE_TYPE
+    from .test_developer_word import make_review
+    reference = tmp_path / 'manual.docx'
+    doc = Document()
+    doc.add_heading('安全注意事项', 1)
+    style = doc.styles.add_style('TOC 1', WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_paragraph('5.1 FastCheck板卡 72', style=style)
+    doc.add_heading('5.1 FastCheck板卡', 1)
+    body = '接口响应时间不超过两秒，并记录超时后的处理结果。'
+    doc.add_paragraph(body)
+    caption = '图7-81 快速检测界面'
+    doc.add_paragraph(caption)
+    doc.save(reference)
+    def recognize(images, warnings):
+        images[0].ocr_text = '5.1 FastCheck板卡 72\n' + body
+        images[1].ocr_text = caption
+    monkeypatch.setattr('commentextract.ocr.recognize_images', recognize)
+    layout = [dict(text='5.1 FastCheck板卡 72',heading='安全注意事项',page=2),
+              dict(text='5.1 FastCheck板卡',heading='5.1 FastCheck板卡',page=67),
+              dict(text=body,heading='5.1 FastCheck板卡',page=67),
+              dict(text=caption,heading='5.1 FastCheck板卡',page=132)]
+    monkeypatch.setattr('commentextract.word_layout.read_layout', lambda *a, **k: (layout, None))
+    result = extract_file(make_review(tmp_path / 'review.docx'), developer=True, reference=reference, word_pages=True)
+    assert not result.error
+    location = result.issues[0].root.location
+    assert '5.1 FastCheck板卡（第 67 页）' in location
+    assert '图7-81 快速检测界面（第 132 页）' in location
+    assert '安全注意事项' not in location and '搜索' not in location
+    assert '第 2 页' not in location
+
+
+def test_reused_text_lists_each_real_section_and_page():
+    from commentextract.word_layout import developer_pages
+    phrase = '安装前请校验软件包的MD5值。'
+    anchors = [dict(paragraph=phrase, title='6.1 安装校验', approximate=False),
+               dict(paragraph=phrase, title='8.2 升级校验', approximate=False)]
+    layout = [dict(text=phrase,heading='6.1 安装校验',page=5),
+              dict(text=phrase,heading='8.2 升级校验',page=12),
+              dict(text=phrase,heading='目录',page=1)]
+    result = developer_pages(anchors, layout).splitlines()
+    assert result == ['6.1 安装校验（第 5 页）', '8.2 升级校验（第 12 页）']
+    assert '页码未获取' in developer_pages(anchors, [])
+
+
+def test_excel_location_column_is_compact_and_legacy_exports_are_skipped(tmp_path):
+    from .samples import make_excel
+    from commentextract.inputs import is_export
+    source = make_excel(tmp_path / "review.xlsx")
+    result = extract_file(source)
+    path = export_result(result, tmp_path / "out")
+    wb = load_workbook(path)
+    sheet = wb["评审汇总"]
+    assert sheet.column_dimensions["C"].width == 16
+    assert sheet["D1"].value == "对应原文／内容" and sheet["E1"].value == "上下文截图"
+    assert sheet["H1"].value == "是否接受"
+    # Earlier releases used the same sheets but put the screenshot column last.
+    old_headers = [c.value for c in sheet[1] if c.value != "上下文截图"] + ["上下文截图"]
+    for index, value in enumerate(old_headers, 1):
+        sheet.cell(1, index).value = value
+    wb.save(path)
+    wb.close()
+    assert is_export(path)
+
+def test_cross_reference_hyperlink_does_not_hide_body_paragraph():
+    from xml.etree import ElementTree as ET
+    from commentextract.word_locations import is_toc_paragraph
+    from .samples import W
+    p = ET.fromstring(f'<w:p xmlns:w="{W}"><w:hyperlink w:anchor="_Toc123"><w:r><w:t>请参见章节中的校验步骤</w:t></w:r></w:hyperlink></w:p>')
+    assert not is_toc_paragraph(p)

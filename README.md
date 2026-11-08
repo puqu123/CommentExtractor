@@ -7,18 +7,20 @@ v0.2.6 另支持开发编写的“编号意见＋截图”Word 评审正文，�
 
 ## 下载使用
 
-下载 [v0.2.11 Windows x64 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-win64.zip)，
+下载 [v0.2.13 Windows x64 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.13/CommentExtractor-v0.2.13-win64.zip)，
 完整解压后双击 `CommentExtractor.exe`，保留同目录的 `_internal` 文件夹。
 主程序文件名为 `CommentExtractor-v版本号-win64.zip`；带 `ocr-addon` 的是可选扩展，`-source.zip` 是源码包。其他版本见 [Releases](https://github.com/puqu123/CommentExtractor/releases)。
 
-v0.2.11 提供两份独立下载，每份严格小于 **100,000,000 字节（100 MB）**：
+v0.2.13 主程序与可选 OCR 扩展分开下载，每份严格小于 **100,000,000 字节（100 MB）**：
 
-- `CommentExtractor-v0.2.11-win64.zip`：主程序，可单独提取批注、使用 Windows OCR 和导出图片。
-- [增强 OCR 扩展包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip)：可选的模型及运行库。
+- `CommentExtractor-v0.2.13-win64.zip`：主程序，可单独提取批注、使用 Windows OCR 和导出图片。
+- [v0.2.11 OCR 增强包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip)：可选的模型及运行库，兼容 v0.2.13。
 
-可分两次传入公司电脑。先关闭程序，将两个 ZIP **解压到同一个目标文件夹**，合并其中的 `CommentExtractor` 文件夹，再启动程序。最终目录中应只有一层 `CommentExtractor`，其中有 EXE 和 `_internal`；扩展文件位于同一个 `_internal` 中。只需要基础功能时不用下载扩展包。导入窗口会显示扩展状态，缺失或版本不匹配时禁用增强 OCR 选项，Windows OCR 仍可用。包内附 `OCR_ADDON_README.txt`。
+可分两次传入公司电脑。先关闭程序，将两个 ZIP **解压到同一个目标文件夹**，合并其中的 `CommentExtractor` 文件夹，再启动程序。最终目录中应只有一层 `CommentExtractor`，其中有 EXE 和 `_internal`；扩展文件位于同一个 `_internal` 中。只需要基础功能时不用下载扩展包。导入窗口会显示扩展状态，缺失或不兼容时禁用增强 OCR 选项，Windows OCR 仍可用。包内附 `OCR_ADDON_README.txt`。
 
-当前版本为 **v0.2.11 预发布版**，供 Office/WPS 实地测试。保留 Windows 原生文件／文件夹选择窗口，格式支持范围与已知限制见下文。
+已经安装兼容的 OCR 扩展时，升级只需关闭程序，将新主程序 ZIP 解压到原来的目标文件夹并替换同名文件，保留原有文件夹；旧扩展会自动复用，无需重复传输。v0.2.11 / v0.2.12 的扩展与当前版兼容。如果解压到一个全新的目录，需要另外把扩展放入该目录。
+
+当前版本为 **v0.2.13 预发布版**，供 Office/WPS 实地测试。保留 Windows 原生文件／文件夹选择窗口，格式支持范围与已知限制见下文。
 
 ## 快速上手
 
@@ -36,7 +38,7 @@ v0.2.11 提供两份独立下载，每份严格小于 **100,000,000 字节（100
 
 - 按 `1、`、`1.`、`1）`、`（1）` 或 Word 顶层自动编号分条。本条编号至下一条编号之间的文字、多张图片和截图后的补充内容归为一条意见。嵌套自动编号留在本条，复杂表格、文本框、浮动图片及特殊编号仍需真实样例验证。
 - 评审正文原样放入“评审意见”。截图 OCR 和匹配到的原文放入“对应原文／内容”；原始图片另存附件。单击“上下文截图”列查看本条全部图片，预览中双击截图放大。
-- 位置优先级为：截图中明确标注的页码 → 原文匹配的章节或截图章节标题 → 图表标题 → 所属章节加可搜索短句／纯段落短句。多处匹配时逐行列出匹配位置；未在原文确认的标题标为“截图识别（待核对）”。无法识别则写“位置未确定”，不把评审 Word 自身的页码当成被评审文档页码。
+- 每张截图分别匹配原手册，位置优先展示章节或图表标题及 Word 排版页码；目录样式的条目不参与匹配。正文多处匹配时逐行列出各处位置；截图识别的页码单独标为待核对。无法识别则写“位置未确定”，不把评审 Word 自身的页码当成被评审文档页码。
 - 导入窗口可选择 Windows 离线 OCR 或 RapidOCR 离线增强识别。Windows 引擎依赖系统语言包；RapidOCR 的中英文模型和运行库放在可选扩展包，无需运行时下载。不上传图片；两种引擎都可能识别错误，效果需用实际截图比较。识别失败仍保留意见和原图。
 - 不使用作者／最后修改人猜测评审人；该入口的评审人由导入时指定或留空。正文中的答复仍作为原文保留，不自动猜测回复关系。
 - 原始 `.docx` 没有可直接信赖的实时排版页码。普通批注使用章节标题和可搜索选区定位，不显示“正文第几段”。程序自动通过本机 Microsoft Word 对临时副本排版，并按匹配段落附上页码；开发评审必须提供原手册。未获取页码时明确提示，不推算页码。不同 Word/WPS、字体及打印设置可能改变分页。
@@ -94,7 +96,7 @@ Excel 位置显示为“检查表 · B2”，合并单元格显示为“检查�
 
 “评审汇总”固定为以下 10 列：
 
-意见编号、文件名、位置、对应原文／内容、评审人、评审意见、是否接受、回复人、回复内容、上下文截图。
+意见编号、文件名、位置、对应原文／内容、上下文截图、评审人、评审意见、是否接受、回复人、回复内容。
 
 - 导出仅保留“评审汇总”和“提取报告”两个页签。一条主意见一行，回复人及完整回复按文件记录顺序放在汇总表中。
 - “是否接受”默认留空，下拉可选“是、否、重复”，由人填写。
@@ -187,7 +189,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish_release.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish_release.ps1 -Publish
 ```
 
-脚本会推送 main 和版本标签，创建带主程序 ZIP、OCR 扩展 ZIP、源码 ZIP、SHA256 校验文件的 Release，不覆盖已有版本。发布前分别验证主程序独立运行及解压扩展后的增强 OCR。
+脚本会推送 main 和版本标签，创建带主程序 ZIP、源码 ZIP、SHA256 校验文件的 Release，不覆盖已有版本；兼容时复用 v0.2.11 的 OCR 扩展链接，发布前验证扩展的文件指纹和兼容性。
 运行前应已安装开发依赖、配置 origin 并登录官方 GitHub CLI；默认保持预发布标记，明确使用 `-Stable` 才按正式版发布。
 图标源文件位于 `commentextract/assets/app.svg`，修改后运行 `python scripts/build_icon.py` 可重新生成 PNG 和多尺寸 ICO。
 

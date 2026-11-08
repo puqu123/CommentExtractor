@@ -49,3 +49,32 @@ def add_pages(location, context, paragraphs):
                         for page in range(int(p["page"]), int(p.get("end_page", p["page"])) + 1) if page > 0})
         lines.append(line + ("（第 " + "、".join(map(str, pages)) + " 页）" if pages else "（页码未获取）"))
     return "\n".join(lines)
+
+
+def developer_pages(anchors, paragraphs):
+    """Attach actual layout pages to the same matched paragraph and section."""
+    from .developer_word import normalized, anchor_title, CAPTION
+    locations = {}
+    visible_pages = {}
+    for anchor in anchors:
+        paragraph = anchor["paragraph"]
+        title = anchor["title"].split(" / ")[-1] if anchor["title"] else ""
+        candidates = [p for p in paragraphs if normalized(p["text"]) == normalized(paragraph)]
+        if title:
+            candidates = [p for p in candidates if p.get("heading") and
+                          normalized(title) in normalized(p["heading"])]
+        label = anchor_title(paragraph, anchor["title"])
+        if candidates and title and not CAPTION.fullmatch(paragraph.strip()):
+            label = candidates[0].get("heading") or label
+        if anchor.get("approximate"):
+            label += "（相似匹配，待核对）"
+        pages = locations.setdefault(label, set())
+        if anchor.get("visible_page"):
+            visible_pages.setdefault(label, set()).add(anchor["visible_page"])
+        for p in candidates:
+            pages.update(range(int(p["page"]), int(p.get("end_page", p["page"])) + 1))
+    return "\n".join(label + ("（第 " + "、".join(map(str, sorted(p for p in pages if p > 0))) + " 页）"
+                               if any(p > 0 for p in pages) else
+                               ("（截图识别：" + "、".join(sorted(visible_pages[label])) + "，待核对）"
+                                if label in visible_pages else "（页码未获取）"))
+                     for label, pages in locations.items())

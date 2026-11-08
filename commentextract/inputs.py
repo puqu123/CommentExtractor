@@ -26,7 +26,9 @@ def is_export(path):
                     headers.append(shared[int(elements(cell, "v")[0].text)])
                 else:
                     headers.append(text(cell))
-            return headers in (HEADERS, [h for h in HEADERS if h != "文件名"])
+            legacy = [h for h in HEADERS if h != "上下文截图"] + ["上下文截图"]
+            return headers in (HEADERS, [h for h in HEADERS if h != "文件名"],
+                               legacy, [h for h in legacy if h != "文件名"])
     except Exception:
         return False  # Let extraction surface corrupt inputs as failures.
 

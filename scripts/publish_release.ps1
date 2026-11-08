@@ -52,13 +52,25 @@ if ($releaseExitCode -eq 0) { throw "Release $tag already exists. It will not be
 if (($existingRelease | Out-String) -notmatch '(?i)release not found|HTTP 404|Not Found') {
     throw 'Could not verify that the release is absent. Check GitHub connectivity and access.'
 }
+$addonJson = & $ghPath release view v0.2.11 --repo $repository --json assets
+if ($LASTEXITCODE -ne 0) { throw 'Cannot verify the existing OCR addon release.' }
+$addonAsset = ($addonJson | ConvertFrom-Json).assets | Where-Object { $_.name -eq 'CommentExtractor-v0.2.11-ocr-addon-win64.zip' -and $_.state -eq 'uploaded' }
+if (-not $addonAsset -or $addonAsset.digest -ne 'sha256:7cc9086950b7b3aaf73b267b316a7c1ddacecd4b14773c0f4a0f9c43f8d48900') {
+    throw 'The existing v0.2.11 OCR addon is missing or does not match the verified compatibility baseline.'
+}
 Invoke-Checked $taskPython @('-m', 'pytest', '-q')
 if (-not $SkipBuild) {
     & (Join-Path $PSScriptRoot 'build_windows.ps1') -SkipInstall
 }
 $bundle = Join-Path $projectRoot "dist\$tag\CommentExtractor\CommentExtractor.exe"
 Invoke-Checked $taskPython @('scripts\smoke_bundle.py', $bundle)
-Invoke-Checked $taskPython @('scripts\smoke_split_bundle.py')
+$legacyMain = Join-Path $projectRoot 'dist\CommentExtractor-v0.2.11-win64.zip'
+$legacyAddon = Join-Path $projectRoot 'dist\CommentExtractor-v0.2.11-ocr-addon-win64.zip'
+if ((Test-Path -LiteralPath $legacyMain) -and (Test-Path -LiteralPath $legacyAddon)) {
+    Invoke-Checked $taskPython @('scripts\smoke_split_bundle.py', '--legacy-main', $legacyMain, '--legacy-addon', $legacyAddon)
+} else {
+    Invoke-Checked $taskPython @('scripts\smoke_split_bundle.py')
+}
 $prepared = & $taskPython scripts\prepare_release.py
 if ($LASTEXITCODE -ne 0) { throw 'Preparing release artifacts failed.' }
 $artifacts = $prepared | ConvertFrom-Json
@@ -74,7 +86,7 @@ $gitArgs = @('-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-c
 if ($env:HTTPS_PROXY) { $gitArgs += @('-c', "http.proxy=$env:HTTPS_PROXY") }
 Invoke-Checked 'git' ($gitArgs + @('push', '-u', 'origin', 'main'))
 Invoke-Checked 'git' ($gitArgs + @('push', 'origin', $tag))
-$releaseArgs = @('release', 'create', $tag, $artifacts.binary, $artifacts.addon, $artifacts.source, $artifacts.checksums,
+$releaseArgs = @('release', 'create', $tag, $artifacts.binary, $artifacts.source, $artifacts.checksums,
                  '--repo', $repository, '--title', "CommentExtractor $tag", '--notes-file', $artifacts.notes, '--verify-tag')
 if (-not $Stable) { $releaseArgs += '--prerelease' }
 Invoke-Checked $ghPath $releaseArgs

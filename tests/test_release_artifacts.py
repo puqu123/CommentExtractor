@@ -25,18 +25,26 @@ def repository(root):
     return base, addon
 
 
-def test_release_contains_both_downloads_and_source_checksums(tmp_path):
+def test_release_reuses_published_addon_without_uploading_it(tmp_path):
     base, addon = repository(tmp_path)
-    artifacts = prepare_release(tmp_path)
-    assert Path(artifacts["addon"]) == addon
-    checksums = Path(artifacts["checksums"]).read_text(encoding="utf-8")
-    for path in [base, addon, Path(artifacts["source"])]:
-        assert hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.name in checksums
-    assert "ocr-addon-win64.zip" in Path(artifacts["notes"]).read_text(encoding="utf-8")
-
-
-def test_release_refuses_missing_addon(tmp_path):
-    _, addon = repository(tmp_path)
     addon.unlink()
-    with pytest.raises(ValueError, match="OCR addon"):
+    artifacts = prepare_release(tmp_path)
+    assert "addon" not in artifacts
+    checksums = Path(artifacts["checksums"]).read_text(encoding="utf-8")
+    for path in [base, Path(artifacts["source"])]:
+        assert hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.name in checksums
+    assert "v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip" in Path(artifacts["notes"]).read_text(encoding="utf-8")
+
+
+def test_release_refuses_incompatible_reused_addon(tmp_path, monkeypatch):
+    repository(tmp_path)
+    monkeypatch.setattr("scripts.prepare_release.OCR_COMPATIBILITY", "different-runtime")
+    with pytest.raises(ValueError, match="incompatible"):
+        prepare_release(tmp_path)
+
+
+def test_release_refuses_when_legacy_support_removed(tmp_path, monkeypatch):
+    repository(tmp_path)
+    monkeypatch.setattr("scripts.prepare_release.LEGACY_VERSIONS", set())
+    with pytest.raises(ValueError, match="incompatible"):
         prepare_release(tmp_path)

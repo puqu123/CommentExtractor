@@ -9,6 +9,15 @@ def excerpt(value, length=48):
     return value[:length] + ("…" if len(value) > length else "")
 
 
+def is_toc_paragraph(paragraph):
+    """Exclude Word-generated directory entries, not ordinary cross-references."""
+    styles = elements(paragraph, "pStyle")
+    style = attr(styles[0], "val") if styles else ""
+    if re.fullmatch(r"(?:toc|目录)\s*[1-9]", style, re.I):
+        return True
+    return False
+
+
 def paragraph_records(package, document, warnings=None):
     styles = {}
     if "word/styles.xml" in package.names:

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .models import HEADERS, ACCEPTANCE_COLUMN, ACCEPTANCE
+from .models import HEADERS, ACCEPTANCE_COLUMN, SCREENSHOT_COLUMN, ACCEPTANCE
 
 ICON_PATH = Path(__file__).resolve().parent / "assets/app.ico"
 
@@ -278,9 +278,9 @@ def build_ui(window, acceptance_delegate):
     window.table.verticalHeader().setDefaultSectionSize(96)
     window.table.verticalHeader().setToolTip("拖动行号之间的边界调整行高。")
     window.table.setItemDelegateForColumn(ACCEPTANCE_COLUMN, acceptance_delegate(window.table))
-    for index, width in enumerate([72, 145, 115, 145, 75, 245, 106, 105, 240, 110]):
+    for index, width in enumerate([72, 145, 115, 145, 110, 75, 245, 106, 105, 240]):
         window.table.setColumnWidth(index, width)
-    window.table.setColumnHidden(9, True)  # Reserved export column; Office screenshots are not produced.
+    window.table.setColumnHidden(SCREENSHOT_COLUMN, True)  # Reserved export column; Office screenshots are not produced.
     window.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     window.table.horizontalHeader().setSectionsMovable(False)
     window.table.horizontalHeader().setToolTip("拖动列边界调整宽度；列顺序与导出的 Excel 一致。")

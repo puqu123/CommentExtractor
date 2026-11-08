@@ -6,7 +6,7 @@ from zipfile import ZipFile
 import pytest
 
 from commentextract import __version__
-from commentextract.ocr_addon import rapidocr_status
+from commentextract.ocr_addon import rapidocr_status, OCR_ENGINE, OCR_COMPATIBILITY
 from scripts.package_windows import package_windows, is_ocr_file
 
 
@@ -75,6 +75,45 @@ def test_invalid_or_mismatched_addon_does_not_crash(tmp_path, monkeypatch, manif
     assert not rapidocr_status()[0]
 
 
+def test_compatible_addon_survives_new_app_version_and_incompatible_is_rejected(tmp_path, monkeypatch):
+    bundle = fake_bundle(tmp_path / "build")
+    _, addon = package_windows(bundle, tmp_path / "downloads")
+    with ZipFile(addon) as archive:
+        archive.extractall(tmp_path / "app")
+    runtime = tmp_path / "app" / "CommentExtractor" / "_internal"
+    frozen(monkeypatch, runtime)
+    marker = runtime / "ocr-addon.json"
+    manifest = json.loads(marker.read_text(encoding="utf-8"))
+    manifest["app_version"] = "0.2.11"
+    marker.write_text(json.dumps(manifest), encoding="utf-8")
+    assert rapidocr_status()[0]
+    manifest["compatibility"] = OCR_COMPATIBILITY + "-incompatible"
+    marker.write_text(json.dumps(manifest), encoding="utf-8")
+    assert not rapidocr_status()[0]
+    manifest["compatibility"] = OCR_COMPATIBILITY
+    manifest["engine"] = OCR_ENGINE + "-different"
+    marker.write_text(json.dumps(manifest), encoding="utf-8")
+    assert not rapidocr_status()[0]
+
+
+def test_legacy_v011_manifest_is_recognized_with_all_files(tmp_path, monkeypatch):
+    import hashlib
+    from commentextract import ocr_addon
+    runtime = tmp_path / "_internal"
+    file = runtime / "cv2" / "cv2.pyd"
+    file.parent.mkdir(parents=True)
+    file.write_bytes(b"legacy")
+    files = {"cv2/cv2.pyd": 6}
+    canonical = json.dumps(files, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()
+    monkeypatch.setattr(ocr_addon, "LEGACY_FILES_DIGEST", hashlib.sha256(canonical).hexdigest())
+    frozen(monkeypatch, runtime)
+    marker = runtime / "ocr-addon.json"
+    marker.write_text(json.dumps({"schema": 1, "app_version": "0.2.11", "engine": OCR_ENGINE, "files": files}), encoding="utf-8")
+    assert rapidocr_status()[0]
+    file.unlink()
+    assert not rapidocr_status()[0]
+
+
 def test_missing_addon_disables_only_enhanced_choice(tmp_path, monkeypatch):
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -113,9 +152,9 @@ def test_mixed_developer_export_options_survive_summary(tmp_path):
     result = merge_results([one, two], "汇总")
     wb = load_workbook(export_result(result, tmp_path / "out"))
     sheet = wb["评审汇总"]
-    assert sheet["D2"].value == "文字1" and sheet["J2"].value is None
-    assert sheet["D3"].value is None and sheet["J3"].hyperlink
-    assert sheet["F2"].value == "意见1" and sheet["F3"].value == "意见2"
+    assert sheet["D2"].value == "文字1" and sheet["E2"].value is None
+    assert sheet["D3"].value is None and sheet["E3"].hyperlink
+    assert sheet["G2"].value == "意见1" and sheet["G3"].value == "意见2"
     wb.close()
 
 

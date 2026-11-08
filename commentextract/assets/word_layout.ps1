@@ -15,7 +15,10 @@ try {
     foreach ($paragraph in $document.Paragraphs) {
         $value = $paragraph.Range.Text.Trim([char]13, [char]7)
         if ($value) {
-            if ([int]$paragraph.OutlineLevel -lt 10) { $heading = $value }
+            if ([int]$paragraph.OutlineLevel -lt 10) {
+                $number = [string]$paragraph.Range.ListFormat.ListString
+                $heading = if ($number -and -not $value.StartsWith($number)) { "$number $value" } else { $value }
+            }
             $range = $paragraph.Range.Duplicate
             $range.Collapse(1)
             $endRange = $paragraph.Range.Duplicate

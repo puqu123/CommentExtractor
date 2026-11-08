@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 
 from .models import Comment, Screenshot, IMAGE_EXTENSIONS
 from .ooxml import Package, attr, elements, local, text
-from .word_locations import excerpt, paragraph_records, word_location
+from .word_locations import excerpt, paragraph_records, word_location, is_toc_paragraph
 
 NUMBER = re.compile(r"^\s*(?:\d{1,3}[、．.](?!\d)|[（(]\d{1,3}[）)]|\d{1,3}[）)])\s*(.*)", re.S)
 PAGE = re.compile(r"(?:第\s*(\d(?:[ \t]*\d){0,4})\s*页|\b(?:page|p\.)[ \t]*(\d(?:[ \t]*\d){0,4})(?!\d))", re.I)
@@ -40,42 +40,51 @@ def explicit_location(value):
     return ""
 
 
-def match_reference(value, reference):
-    """Retain every substantial match, including repeated source passages."""
-    needles = [normalized(line) for line in value.splitlines() if len(normalized(line)) >= 8]
+def reference_matches(value, reference):
+    """Keep all substantial matches; resolve each image independently."""
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    needles = [normalized(line) for line in lines
+               if len(normalized(line)) >= 8 and not PAGE.fullmatch(line.strip())]
     matches = []
-    approximate = False
     for paragraph, title, level in reference:
         candidate = normalized(paragraph)
-        if len(candidate) < 8:
-            continue
-        if any((needle in candidate or candidate in needle) for needle in needles):
+        if len(candidate) >= 8 and any(n in candidate or candidate in n for n in needles):
             matches.append((paragraph, title, level))
-    if not matches:
-        scored = []
-        for record in reference:
-            candidate = normalized(record[0])
-            scores = [SequenceMatcher(None, needle, candidate, autojunk=False).ratio()
-                      for needle in needles if min(len(needle), len(candidate)) >= 12
-                      and min(len(needle), len(candidate)) / max(len(needle), len(candidate)) >= 0.6]
-            if scores:
-                scored.append((max(scores), record))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        if scored and scored[0][0] >= 0.88:
-            matches = [record for score, record in scored if score >= max(0.88, scored[0][0] - 0.03)]
-            approximate = True
-    # One paragraph can match more than one OCR line; one actual reference
-    # paragraph appearing twice is still ambiguous and must not be collapsed.
-    if len(matches) == 1:
-        paragraph, title, level = matches[0]
-        if not title and CAPTION.fullmatch(paragraph):
-            return "原文图表标题：" + paragraph, paragraph
-        return word_location(title, paragraph, label="相似文字匹配（待核对）" if approximate else "原文匹配"), paragraph
     if matches:
-        label = "相似文字匹配（待核对）" if approximate else "原文匹配"
-        locations = [word_location(title, paragraph, label=label) for paragraph, title, _ in matches]
-        return "\n".join(dict.fromkeys(locations)), ""
-    return "", ""
+        # A screenshot can contain both a section heading and its body. Keep
+        # the body anchor so a heading's page does not masquerade as its page.
+        matches = [record for record in matches if record[2] is None or not any(
+            other[1] == record[1] and other[2] is None for other in matches)]
+        return matches, False
+    scored = []
+    for record in reference:
+        candidate = normalized(record[0])
+        scores = [SequenceMatcher(None, needle, candidate, autojunk=False).ratio()
+                  for needle in needles if min(len(needle), len(candidate)) >= 12
+                  and min(len(needle), len(candidate)) / max(len(needle), len(candidate)) >= 0.6]
+        if scores:
+            scored.append((max(scores), record))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    if scored and scored[0][0] >= 0.88:
+        return [record for score, record in scored if score >= max(0.88, scored[0][0] - 0.03)], True
+    return [], False
+
+
+def anchor_title(paragraph, title):
+    if CAPTION.fullmatch(paragraph.strip()):
+        return paragraph.strip()
+    if title:
+        return title.split(" / ")[-1]
+    return f'原文搜索“{excerpt(paragraph).rstrip("…")}”'
+
+
+def match_reference(value, reference):
+    matches, approximate = reference_matches(value, reference)
+    if not matches:
+        return "", ""
+    lines = [anchor_title(paragraph, title) + ("（相似匹配，待核对）" if approximate else "")
+             for paragraph, title, _ in matches]
+    return "\n".join(dict.fromkeys(lines)), matches[0][0] if len(matches) == 1 else ""
 
 
 def _numbered_paragraphs(package, document):
@@ -131,8 +140,9 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, o
     if reference:
         try:
             with Package(reference, warnings) as original:
-                reference_records = [(value, title, level) for _, value, title, level in
-                                     paragraph_records(original, original.xml("word/document.xml"), warnings) if value]
+                reference_records = [(value, title, level) for paragraph, value, title, level in
+                                     paragraph_records(original, original.xml("word/document.xml"), warnings)
+                                     if value and not is_toc_paragraph(paragraph)]
         except Exception as exc:
             warnings.append(f"原始文档无法读取：{type(exc).__name__}：{exc}；继续保留意见和截图。")
     with Package(path, warnings) as package:
@@ -192,32 +202,35 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, o
             warnings.append(f"截图识别失败：{type(exc).__name__}：{exc}；意见和原图仍保留。")
     for index, comment in enumerate(comments, 1):
         ocr_text = "\n".join(image.ocr_text for image in comment.screenshots if image.ocr_text)
-        matched_location, matched_context = match_reference(ocr_text, reference_records)
-        # Visible pages dominate. Next prefer a chapter matched in the supplied
-        # original, then screenshot heading/caption candidates, then excerpts.
-        visible = explicit_location(ocr_text)
-        # A reference location with a title has a segment before the search
-        # term. A bare paragraph excerpt must not outrank a visible heading.
-        reference_has_title = (" · " in matched_location.split(" · 搜索“")[0]
-                               or "图表标题" in matched_location or "（多处匹配）" in matched_location)
-        if visible.startswith("第 "):
-            comment.location = visible + "（截图 OCR，待核对）"
-            if matched_location:
-                comment.location += "\n" + matched_location
-        elif reference_has_title:
-            comment.location = matched_location
+        matched_contexts = []
+        seen_anchors = set()
+        for image in comment.screenshots:
+            matches, approximate = reference_matches(image.ocr_text, reference_records)
+            visible_page = explicit_location(image.ocr_text)
+            visible_page = visible_page if len(matches) == 1 and visible_page.startswith("第 ") else ""
+            for paragraph, title, _ in matches:
+                key = (paragraph, title, approximate)
+                if key not in seen_anchors:
+                    comment.location_anchors.append({"paragraph": paragraph, "title": title,
+                                                     "approximate": approximate, "visible_page": visible_page})
+                    matched_contexts.append(paragraph)
+                    seen_anchors.add(key)
+                elif visible_page:
+                    for anchor in comment.location_anchors:
+                        if (anchor["paragraph"], anchor["title"], anchor["approximate"]) == key and not anchor.get("visible_page"):
+                            anchor["visible_page"] = visible_page
+        if comment.location_anchors:
+            from .word_layout import developer_pages
+            comment.location = developer_pages(comment.location_anchors, [])
         else:
-            comment.location = visible or matched_location
-        if not comment.location:
-            # The review prose can explicitly name a page or quoted chapter;
-            # keep this lower priority than actual screenshot evidence.
-            comment.location = explicit_location(comment.text)
-            if comment.location:
-                comment.location += "（评审正文）"
-        if not comment.location and ocr_text:
-            comment.location = matched_location or f'原文搜索“{excerpt(ocr_text).rstrip("…")}”（截图 OCR，待核对）'
-        if not comment.location:
-            comment.location = f"位置未确定 · 评审第 {index} 条" + ("，见截图" if comment.screenshots else "")
+            comment.location = explicit_location(ocr_text) or explicit_location(comment.text)
+            if comment.location and ocr_text and "待核对" not in comment.location:
+                comment.location += "（截图识别，待核对）"
+            if not comment.location and ocr_text:
+                comment.location = f'原文搜索“{excerpt(ocr_text).rstrip("…")}”（待核对）'
+            if not comment.location:
+                comment.location = f"位置未确定 · 评审第 {index} 条" + ("，见截图" if comment.screenshots else "")
+        matched_context = "\n".join(dict.fromkeys(matched_contexts))
         sections = []
         if matched_context:
             sections.append("匹配到的原文：\n" + matched_context)

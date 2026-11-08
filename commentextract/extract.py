@@ -53,15 +53,22 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
         if word_pages and result.issues and developer and not reference:
             result.warnings.append("未提供原手册，未读取排版页码；不会把评审文件的页码当成原手册页码。")
         elif word_pages and result.issues and suffix == ".docx":
-            from .word_layout import read_layout, add_pages
+            from .word_layout import read_layout, add_pages, developer_pages
             stage(90, "通过 Microsoft Word 读取排版页码")
             try:
                 if not layout or (developer and reference):
                     layout, _ = read_layout(reference if developer and reference else source)
                 for issue in result.issues:
-                    issue.root.location = add_pages(issue.root.location, issue.root.context, layout)
+                    if developer and issue.root.location_anchors:
+                        issue.root.location = developer_pages(issue.root.location_anchors, layout)
+                    elif not developer:
+                        issue.root.location = add_pages(issue.root.location, issue.root.context, layout)
             except RuntimeError as exc:
                 result.warnings.append(str(exc) + " 已保留提取内容及标题定位。")
+                if developer:
+                    for issue in result.issues:
+                        if issue.root.location_anchors:
+                            issue.root.location = developer_pages(issue.root.location_anchors, [])
         result.warnings = list(dict.fromkeys(result.warnings))
     except Exception as exc:
         diagnostic.error = exception_details(exc)

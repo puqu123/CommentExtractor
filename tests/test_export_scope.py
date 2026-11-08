@@ -66,9 +66,9 @@ def test_new_files_are_checked_without_rechecking_old_files(window, tmp_path):
 def test_separate_export_uses_checked_files_and_keeps_unexported_edits(window, tmp_path, monkeypatch):
     w, _, messages = window
     w.file_list.setCurrentRow(0)
-    w.table.item(0, 6).setText("是")
+    w.table.item(0, 7).setText("是")
     w.file_list.setCurrentRow(1)
-    w.table.item(0, 6).setText("否")
+    w.table.item(0, 7).setText("否")
     w.file_list.item(1).setCheckState(Qt.Unchecked)
     w.file_list.item(2).setCheckState(Qt.Unchecked)
     destination = tmp_path / "out"
@@ -94,7 +94,7 @@ def test_separate_export_uses_checked_files_and_keeps_unexported_edits(window, t
     wait_for_worker(w)
     assert not w.dirty and not w.dirty_issue_ids
     workbook = load_workbook(target)
-    assert workbook["评审汇总"]["G2"].value == "否"
+    assert workbook["评审汇总"]["H2"].value == "否"
     workbook.close()
 
 
@@ -114,7 +114,7 @@ def test_summary_exports_only_checked_files_without_replacing_input_list(window,
     sheet = workbook["评审汇总"]
     assert sheet.max_row == 3
     assert [sheet.cell(row, 2).value for row in (2, 3)] == [w.results[i].source.name for i in (0, 2)]
-    assert all("答复人乙" in sheet.cell(row, 9).value for row in (2, 3))
+    assert all("答复人乙" in sheet.cell(row, 10).value for row in (2, 3))
     assert any(row[0].value == "汇总源文件数" and row[1].value == 2 for row in workbook["提取报告"])
     workbook.close()
 
@@ -133,7 +133,7 @@ def test_unchecked_failures_are_not_reported_as_export_exclusions(window, tmp_pa
 def test_cancel_and_summary_failure_keep_edits_and_do_not_overwrite(window, tmp_path, monkeypatch):
     w, _, _ = window
     w.file_list.setCurrentRow(0)
-    w.table.item(0, 6).setText("重复")
+    w.table.item(0, 7).setText("重复")
     monkeypatch.setattr("commentextract.app.choose_directory", lambda *args: "")
     monkeypatch.setattr("commentextract.app.choose_summary_file", lambda *args: "")
     w.export()
@@ -147,7 +147,7 @@ def test_cancel_and_summary_failure_keep_edits_and_do_not_overwrite(window, tmp_
     assert original.read_bytes() == b"existing output must be preserved"
     assert w.output_paths == [str(tmp_path / "汇总_2.xlsx")]
     assert not w.dirty
-    w.table.item(0, 6).setText("是")
+    w.table.item(0, 7).setText("是")
 
     def fail(*args, **kwargs):
         raise PermissionError("模拟输出被占用")
@@ -172,7 +172,7 @@ def test_remove_checked_preserves_files_and_unchecked_edits(window, monkeypatch)
     w, _, _ = window
     original_paths = [result.source for result in w.results]
     w.file_list.setCurrentRow(1)
-    w.table.item(0, 6).setText("否")
+    w.table.item(0, 7).setText("否")
     w.file_list.item(1).setCheckState(Qt.Unchecked)
     monkeypatch.setattr(QMessageBox, "question", lambda *args: pytest.fail("未移除有修改的文件，不应提示"))
     w.remove_checked_button.click()
@@ -186,7 +186,7 @@ def test_remove_checked_preserves_files_and_unchecked_edits(window, monkeypatch)
 def test_remove_checked_dirty_cancel_and_confirm(window, monkeypatch):
     w, _, _ = window
     w.file_list.setCurrentRow(0)
-    w.table.item(0, 6).setText("是")
+    w.table.item(0, 7).setText("是")
     w.file_list.item(1).setCheckState(Qt.Unchecked)
     w.file_list.item(2).setCheckState(Qt.Unchecked)
     monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.Cancel)

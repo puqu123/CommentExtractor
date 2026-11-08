@@ -6,9 +6,10 @@ from collections import Counter
 from dataclasses import replace
 from typing import List, Optional
 
-HEADERS = ["意见编号", "文件名", "位置", "对应原文／内容", "评审人", "评审意见", "是否接受", "回复人", "回复内容", "上下文截图"]
+HEADERS = ["意见编号", "文件名", "位置", "对应原文／内容", "上下文截图", "评审人", "评审意见", "是否接受", "回复人", "回复内容"]
 ACCEPTANCE_COLUMN = HEADERS.index("是否接受")
 CONTEXT_COLUMN = HEADERS.index("对应原文／内容")
+SCREENSHOT_COLUMN = HEADERS.index("上下文截图")
 ACCEPTANCE = ("", "是", "否", "重复")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".emf", ".wmf", ".ico"}
 
@@ -30,6 +31,7 @@ class Comment:
     context: str = ""
     screenshots: List[Screenshot] = field(default_factory=list)
     export_mode: str = "both"
+    location_anchors: list = field(default_factory=list)
 
 
 @dataclass
@@ -48,9 +50,8 @@ class Issue:
         authors = list(dict.fromkeys(c.author or "未署名" for c in self.replies))
         replies = "\n\n".join(f"{i}. {c.author or '未署名'}：{c.text}" for i, c in enumerate(self.replies, 1))
         return [self.id, self.source.name if self.source else filename,
-                self.root.location, self.root.context, self.root.author,
-                self.root.text, self.acceptance, "、".join(authors), replies,
-                "\n".join(image.name for image in self.screenshots)]
+                self.root.location, self.root.context, "\n".join(image.name for image in self.screenshots),
+                self.root.author, self.root.text, self.acceptance, "、".join(authors), replies]
 
 
 @dataclass

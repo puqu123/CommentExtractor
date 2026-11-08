@@ -4,6 +4,7 @@ Both archives share the CommentExtractor/ root. Extracting them into the same
 destination restores the original PyInstaller paths; no installer is needed.
 """
 import hashlib
+from importlib import metadata
 import json
 from pathlib import Path
 import sys
@@ -12,7 +13,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from commentextract import __version__
-from commentextract.ocr_addon import ADDON_SCHEMA
+from commentextract.ocr_addon import ADDON_SCHEMA, OCR_COMPATIBILITY, OCR_ENGINE
 
 MAX_DOWNLOAD_BYTES = 100_000_000
 OCR_COMPONENTS = {"cv2", "rapidocr_onnxruntime", "onnxruntime", "numpy", "numpy.libs",
@@ -28,7 +29,7 @@ README = """增强 OCR 扩展包（可选）
 
 主程序单独即可读取标准批注、执行 Windows OCR、保存截图并导出 Excel。
 本包提供 RapidOCR 模型及本地运行库，无需安装 Python，无需联网下载。
-请使用与主程序相同版本的扩展包。识别效果仍需对照原图核对。
+兼容的扩展包可以随主程序更新继续使用。识别效果仍需对照原图核对。
 """
 
 
@@ -47,7 +48,13 @@ def package_windows(bundle, dist=None, max_bytes=MAX_DOWNLOAD_BYTES):
     addon_files = [p for p in files if is_ocr_file(p.relative_to(bundle))]
     if not any(p.suffix == ".onnx" for p in addon_files):
         raise ValueError("The build is missing local OCR weights.")
-    manifest = {"schema": ADDON_SCHEMA, "app_version": __version__, "engine": "rapidocr-onnxruntime==1.4.4",
+    required = {"rapidocr-onnxruntime": "1.4.4", "onnxruntime": "1.19.2", "numpy": "2.0.2",
+                "opencv-python": "5.0.0.93", "shapely": "2.0.7", "pyclipper": "1.3.0.post6"}
+    installed = {name: metadata.version(name) for name in required}
+    if installed != required or sys.version_info[:2] != (3, 9) or sys.maxsize < 2**32:
+        raise ValueError("OCR 运行库或 Python 环境已变化，请先更新兼容标识并验证扩展包。")
+    manifest = {"schema": ADDON_SCHEMA, "app_version": __version__, "engine": OCR_ENGINE,
+                "compatibility": OCR_COMPATIBILITY,
                 "files": {p.relative_to(bundle / "_internal").as_posix(): p.stat().st_size for p in addon_files}}
     marker = bundle / "_internal" / "ocr-addon.json"
     marker.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

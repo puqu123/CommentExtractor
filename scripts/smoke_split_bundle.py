@@ -1,5 +1,7 @@
 """Run the actual ZIPs from a clean folder, before and after optional OCR overlay."""
 import os
+import argparse
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +16,12 @@ from openpyxl import load_workbook
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--legacy-main", type=Path)
+    parser.add_argument("--legacy-addon", type=Path)
+    args = parser.parse_args()
+    if bool(args.legacy_main) != bool(args.legacy_addon):
+        parser.error("Provide both --legacy-main and --legacy-addon.")
     project = Path(__file__).resolve().parents[1]
     base = project / "dist" / f"CommentExtractor-v{__version__}-win64.zip"
     addon = project / "dist" / f"CommentExtractor-v{__version__}-ocr-addon-win64.zip"
@@ -48,6 +56,21 @@ def main():
             assert "CommentExtractor/CommentExtractor.exe" not in archive.namelist()
             archive.extractall(destination)
         subprocess.run([sys.executable, smoke, str(executable)], check=True, env=environment, timeout=180)
+        if args.legacy_main:
+            # Simulate a real upgrade in the existing program directory.
+            upgrade = root / "已有程序 直接升级"
+            for source in (args.legacy_main, args.legacy_addon):
+                with ZipFile(source) as archive:
+                    archive.extractall(upgrade)
+            marker = upgrade / "CommentExtractor" / "_internal" / "ocr-addon.json"
+            previous_marker = marker.read_bytes()
+            assert json.loads(previous_marker)["app_version"] != __version__
+            with ZipFile(base) as archive:
+                archive.extractall(upgrade)
+            assert marker.read_bytes() == previous_marker
+            subprocess.run([sys.executable, smoke, str(upgrade / "CommentExtractor" / "CommentExtractor.exe")],
+                           check=True, env=environment, timeout=180)
+            print("Existing addon reused after upgrading the main program.")
     print("Split downloads passed: each <100,000,000 bytes, main-only Office/Windows OCR, missing-addon recovery, merged offline RapidOCR, Unicode path.")
 
 

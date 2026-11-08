@@ -48,13 +48,13 @@ def check_case(case, output, exporter=None):
             return cell.value or ""
 
         for row, expected in enumerate(case.expected, 2):
-            for column, value in [(2, case.source.name), (5, expected["reviewer"]), (6, expected["opinion"])]:
+            for column, value in [(2, case.source.name), (6, expected["reviewer"]), (7, expected["opinion"])]:
                 assert exported_text(row, column) == value, f"Excel 第{row}行第{column}列未完整保留文字"
             if "context" in expected:
                 assert exported_text(row, 4) == expected["context"], f"Excel 第{row}行未完整保留对应内容"
             expected_reply = "\n\n".join(f"{i}. {author or '未署名'}：{body}" for i, (author, body) in enumerate(expected.get("replies", []), 1))
-            assert exported_text(row, 9) == expected_reply
-            assert sheet.cell(row, 7).value is None, "不应自动填写是否接受"
+            assert exported_text(row, 10) == expected_reply
+            assert sheet.cell(row, 8).value is None, "不应自动填写是否接受"
     finally:
         workbook.close()
     assert hashlib.sha256(case.source.read_bytes()).hexdigest() == digest, "导出修改了源文件"

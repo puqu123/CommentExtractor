@@ -57,7 +57,7 @@ def test_numbered_review_images_continuation_and_reference(tmp_path, monkeypatch
     assert len(result.issues) == 3
     first, second, third = [i.root for i in result.issues]
     assert first.author == "开发甲"
-    assert "第 12 页" in first.location and "OCR" in first.location
+    assert "第 12 页" in first.location and "截图识别" in first.location
     assert "补充意见" in first.text
     assert len(first.screenshots) == 2
     assert "匹配到的原文" in first.context
@@ -70,9 +70,9 @@ def test_numbered_review_images_continuation_and_reference(tmp_path, monkeypatch
     workbook = load_workbook(output)
     assert workbook.sheetnames == ["评审汇总", "提取报告"]
     sheet = workbook["评审汇总"]
-    assert sheet["E2"].value == "开发甲"
-    assert "补充意见" in sheet["F2"].value
-    assert sheet["J2"].hyperlink
+    assert sheet["F2"].value == "开发甲"
+    assert "补充意见" in sheet["G2"].value
+    assert sheet["E2"].hyperlink
     images = [p for p in output.parent.glob("*_附件/*.png") if not p.name.endswith("_预览.png")]
     assert len(images) == 3
     assert all(image.read_bytes() == first.screenshots[0].data for image in images)
@@ -144,8 +144,8 @@ def test_reference_heading_and_searchable_paragraph_without_fabricated_page(tmp_
     result = extract_file(review, developer=True, reference=reference)
     assert not result.error
     assert "4.1 处理规则" in result.issues[0].root.location
-    assert "搜索" in result.issues[0].root.location
-    assert "页" not in result.issues[0].root.location
+    assert "搜索" not in result.issues[0].root.location
+    assert "页码未获取" in result.issues[0].root.location
 
 
 def test_standard_word_uses_heading_and_quote_not_paragraph_number(tmp_path):
@@ -176,8 +176,8 @@ def test_developer_ui_import_and_readonly_screenshot_viewer(tmp_path, monkeypatc
     window.choose_developer()
     wait_for_worker(window)
     assert len(window.results[0].issues) == 3
-    assert not window.table.isColumnHidden(9)
-    window.open_cell_text(0, 9)
+    assert not window.table.isColumnHidden(4)
+    window.open_cell_text(0, 4)
     reader = window.findChild(QDialog, "cellTextDialog")
     assert reader.findChild(QScrollArea) is not None
     assert len(list(Path(reader.screenshot_temp.path()).glob("*.png"))) == 2
