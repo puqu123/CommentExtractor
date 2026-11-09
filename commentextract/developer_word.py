@@ -9,9 +9,9 @@ from .ooxml import Package, attr, elements, local, text
 from .word_locations import excerpt, paragraph_records, word_location, is_toc_paragraph
 
 NUMBER = re.compile(r"^\s*(?:\d{1,3}[、．.](?!\d)|[（(]\d{1,3}[）)]|\d{1,3}[）)])\s*(.*)", re.S)
-PAGE = re.compile(r"(?:第\s*(\d(?:[ \t]*\d){0,4})\s*页|\b(?:page|p\.)[ \t]*(\d(?:[ \t]*\d){0,4})(?!\d))", re.I)
+PAGE = re.compile(r"(?:第\s*(\d(?:[ \t]*\d){0,4})\s*页|\b(?:page|p\.)[ \t]*[:：]?[ \t]*(\d(?:[ \t]*\d){0,4})(?!\d)|(?:页码|页号)[ \t]*[:：]?[ \t]*(\d(?:[ \t]*\d){0,4})(?!\d))", re.I)
 CAPTION = re.compile(r"^(?:图|表|figure|table)\s*\d+(?:[-.－]\d+)*(?:\s|[:：、]|[^\d\W]).*", re.I)
-HEADING = re.compile(r"^(?:第[一二三四五六七八九十百\d]+[章节]|\d+(?:\.\d+){1,4}\s+)[^。；;]{1,100}$")
+HEADING = re.compile(r"^(?:第[一二三四五六七八九十百\d]+[章节]|\d+(?:\.\d+){1,5}\s*)[^。；;]{1,120}$")
 
 
 def normalize_ocr_line(value):
@@ -36,7 +36,7 @@ def explicit_location(value):
     for pattern in (HEADING, CAPTION):
         found = [normalize_ocr_line(line) for line in lines if pattern.fullmatch(normalize_ocr_line(line))]
         if found:
-            return "\n".join("截图识别：" + line + "（待核对）" for line in dict.fromkeys(found))
+            return "\n".join(line + "（待核对）" for line in dict.fromkeys(found))
     return ""
 
 
@@ -70,19 +70,51 @@ def reference_matches(value, reference):
     return [], False
 
 
+def reference_title_matches(value, reference):
+    """Prioritize screenshot headings and figure/table captions over body text."""
+    lines = [normalized(line) for line in value.splitlines() if len(normalized(line)) >= 6]
+    titled = [record for record in reference if record[2] is not None or
+              CAPTION.fullmatch(record[0].strip()) or HEADING.fullmatch(normalize_ocr_line(record[0]))]
+    exact = []
+    for record in titled:
+        paragraph, title, _ = record
+        candidates = [normalized(paragraph), normalized(title)]
+        if any(candidate and any(line in candidate or candidate in line for line in lines)
+               for candidate in candidates):
+            exact.append(record)
+    if exact:
+        return list(dict.fromkeys(exact)), False
+    scored = []
+    for record in titled:
+        paragraph, title, _ = record
+        anchors = [normalized(paragraph), normalized(title)]
+        for line in lines:
+            for anchor in anchors:
+                if len(anchor) < 6 or min(len(line), len(anchor)) / max(len(line), len(anchor)) < 0.55:
+                    continue
+                score = SequenceMatcher(None, line, anchor, autojunk=False).ratio()
+                if score >= 0.78:
+                    scored.append((score, record))
+    if not scored:
+        return [], False
+    best = max(score for score, _ in scored)
+    matches = list(dict.fromkeys(record for score, record in scored if score >= max(0.78, best - 0.025)))
+    return matches, True
+
+
 def anchor_title(paragraph, title):
     if CAPTION.fullmatch(paragraph.strip()):
         return paragraph.strip()
     if title:
         return title.split(" / ")[-1]
-    return f'原文搜索“{excerpt(paragraph).rstrip("…")}”'
+    return f'原文：“{excerpt(paragraph).rstrip("…")}”'
 
 
 def match_reference(value, reference):
     matches, approximate = reference_matches(value, reference)
     if not matches:
         return "", ""
-    lines = [anchor_title(paragraph, title) + ("（相似匹配，待核对）" if approximate else "")
+    lines = [anchor_title(paragraph, title) + ("（待核对）" if approximate else "")
              for paragraph, title, _ in matches]
     return "\n".join(dict.fromkeys(lines)), matches[0][0] if len(matches) == 1 else ""
 
@@ -134,7 +166,7 @@ def _numbered_paragraphs(package, document):
     return result
 
 
-def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, ocr_backend="windows"):
+def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, ocr_backend="windows", ai=False):
     comments = []
     reference_records = []
     if reference:
@@ -200,14 +232,51 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, o
             (recognize_images_rapid if ocr_backend == "rapidocr" else recognize_images)(images, warnings)
         except Exception as exc:
             warnings.append(f"截图识别失败：{type(exc).__name__}：{exc}；意见和原图仍保留。")
+    ai_settings = {}
+    if ai:
+        from .model_settings import load_settings
+        ai_settings = load_settings(include_key=True)
+        if not ai_settings.get("key"):
+            warnings.append("AI 辅助定位不可用：无法读取模型配置或密钥，已保留本地定位结果。")
+        elif not reference_records:
+            warnings.append("AI 辅助定位需要可读取的原手册；已保留意见和截图。")
     for index, comment in enumerate(comments, 1):
-        ocr_text = "\n".join(image.ocr_text for image in comment.screenshots if image.ocr_text)
         matched_contexts = []
         seen_anchors = set()
         for image in comment.screenshots:
-            matches, approximate = reference_matches(image.ocr_text, reference_records)
-            visible_page = explicit_location(image.ocr_text)
-            visible_page = visible_page if len(matches) == 1 and visible_page.startswith("第 ") else ""
+            # Evidence priority: explicit page printed in the screenshot,
+            # then a visible heading/caption, then ordinary body-text matches.
+            screenshot_page = explicit_location(image.ocr_text)
+            title_matches, title_approximate = reference_title_matches(image.ocr_text, reference_records)
+            matches, approximate = (title_matches, title_approximate) if title_matches else reference_matches(
+                image.ocr_text, reference_records)
+            if ai_settings.get("key") and reference_records:
+                from .model_api import select_candidates, recognize_image
+                from .progress import stage
+                stage(75, "AI 辅助定位截图")
+                try:
+                    query = image.ocr_text
+                    if not query and ai_settings.get("vision", True):
+                        query = recognize_image(ai_settings, image)
+                        image.ocr_text = query
+                    selected = select_candidates(ai_settings, image, query or comment.text, reference_records)
+                    if selected and not title_matches:
+                        # Reused identical text can appear in other sections. Never
+                        # silently discard those locations even if the model picks one.
+                        selected_texts = {normalized(record[0]) for record in selected}
+                        matches = [record for record in reference_records if normalized(record[0]) in selected_texts]
+                        approximate = True
+                    elif selected == []:
+                        warnings.append("AI 未确认截图位置，保留本地匹配结果，请核对。")
+                    else:
+                        warnings.append("AI 定位没有足够的原文候选，保留本地匹配结果，请核对。")
+                except Exception as exc:
+                    reason = str(exc) if isinstance(exc, RuntimeError) else "模型服务调用失败"
+                    warnings.append("AI 辅助定位失败：" + reason + "；已保留本地定位结果。")
+            visible_page = screenshot_page or explicit_location(image.ocr_text)
+            # A screenshot can contain a printed page number alongside several
+            # matched paragraphs. Preserve that evidence for every anchor in it.
+            visible_page = visible_page if visible_page.startswith("第 ") else ""
             for paragraph, title, _ in matches:
                 key = (paragraph, title, approximate)
                 if key not in seen_anchors:
@@ -219,6 +288,7 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, o
                     for anchor in comment.location_anchors:
                         if (anchor["paragraph"], anchor["title"], anchor["approximate"]) == key and not anchor.get("visible_page"):
                             anchor["visible_page"] = visible_page
+        ocr_text = "\n".join(image.ocr_text for image in comment.screenshots if image.ocr_text)
         if comment.location_anchors:
             from .word_layout import developer_pages
             comment.location = developer_pages(comment.location_anchors, [])
@@ -229,13 +299,13 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, o
             if not comment.location and ocr_text:
                 comment.location = f'原文搜索“{excerpt(ocr_text).rstrip("…")}”（待核对）'
             if not comment.location:
-                comment.location = f"位置未确定 · 评审第 {index} 条" + ("，见截图" if comment.screenshots else "")
+                comment.location = "未定位" + ("（见截图）" if comment.screenshots else "")
         matched_context = "\n".join(dict.fromkeys(matched_contexts))
         sections = []
         if matched_context:
             sections.append("匹配到的原文：\n" + matched_context)
         if ocr_text:
-            sections.append("截图 OCR（请核对原图）：\n" + ocr_text)
+            sections.append("截图文字识别（请核对原图）：\n" + ocr_text)
         comment.context = "\n\n".join(sections)
     warnings.append("开发评审按顶层编号归组，文字和截图均保留；未自动区分正文中的回复，请核对分条及位置。")
     if not reviewer:

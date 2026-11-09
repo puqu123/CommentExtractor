@@ -127,7 +127,15 @@ def export_result(result, output_dir, filename=None, content_mode="both"):
                                                     ext=XDRPositiveSize2D(int(thumbnail.width*9525), int(thumbnail.height*9525)))
                     summary.add_image(thumbnail)
                 set_text(cell, f"查看截图（{len(image_names)}张）")
-                link = preview if originals else assets / image_names[0]
+                gallery_page = assets / f"截图_{row - 1:04d}_列表.html"
+                links = "".join(f'<li><a href="{quote(name)}">查看截图 {i}</a></li>'
+                                for i, name in enumerate(image_names, 1))
+                gallery_page.write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
+                    '<title>截图列表</title><style>body{font-family:system-ui,sans-serif;margin:32px;'
+                    'color:#193652}li{margin:18px 0}a{color:#087c70;font-size:18px}</style>'
+                    '<h1>截图列表</h1><p>点击查看原图</p><ol>' + links + '</ol></html>', encoding="utf-8")
+                created_assets.append(gallery_page)
+                link = gallery_page
                 cell.hyperlink = link.relative_to(output_dir).as_posix()
                 for image in originals:
                     image.close()
@@ -155,7 +163,7 @@ def export_result(result, output_dir, filename=None, content_mode="both"):
         report.append(["回复数量", result.comment_count - len(result.issues)])
         report.append(["使用说明", "是否接受留空待填写；同一问题首次计入意见，后续相同意见人工标记为重复。回复人仅表示回复作者。"])
         report.append(["统计说明", "重复数和去重后的数量使用公式，Excel 打开后自动计算；同一问题后续各行标记为重复，首次出现的行保留原接受情况。"])
-        report.append(["附件说明", "如有 TXT 或截图，请将 Excel 和同名附件目录一起移动。截图列显示缩略图，点击单元格顶部的文字链接可打开该条意见的全部截图预览；原始图片也按意见顺序保存在附件目录。普通 .xlsx 不含双击放大宏。"])
+        report.append(["附件说明", "如有 TXT 或截图，请将 Excel 和同名附件目录一起移动。点击截图列的文字链接打开本地截图列表，再逐张查看原图。普通 .xlsx 不含双击放大宏。"])
         for warning in dict.fromkeys(warnings):
             report.append(["提示", ""])
             set_text(report.cell(report.max_row, 2), warning)

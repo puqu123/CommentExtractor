@@ -33,7 +33,7 @@ MESSAGES = {
 }
 APP_FILES = {name + ".py" for name in ("app", "extract", "word", "word_locations", "excel", "powerpoint",
              "ooxml", "models", "export", "merge", "inputs", "developer_word", "ocr", "support", "cli",
-             "developer_dialog", "ui", "diagnostics", "word_layout", "progress", "ocr_addon", "__init__")}
+             "developer_dialog", "ui", "diagnostics", "word_layout", "progress", "ocr_addon", "model_api", "model_settings", "model_dialog", "__init__")}
 KINDS = {"word_comments", "word_reply_links", "excel_comments", "excel_threads", "ppt_comments",
          "people", "document", "workbook", "presentation", "styles", "relationships", "other_xml"}
 NODE_NAMES = {"comment": "comment", "threadedComment": "threaded_comment", "cm": "ppt_comment",

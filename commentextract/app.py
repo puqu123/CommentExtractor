@@ -166,6 +166,7 @@ class MainWindow(QMainWindow):
         self.add_button.clicked.connect(self.choose_files)
         self.folder_button.clicked.connect(self.choose_folder)
         self.developer_button.clicked.connect(self.choose_developer)
+        self.model_button.clicked.connect(self.show_model_settings)
         self.clear_button.clicked.connect(self.clear_files)
         self.remove_checked_button.clicked.connect(self.remove_checked_files)
         self.summary_export_button.clicked.connect(self.export_summary)
@@ -252,6 +253,10 @@ class MainWindow(QMainWindow):
         if chosen:
             paths, options = chosen
             self.add_files(paths, options=options)
+
+    def show_model_settings(self):
+        from .model_dialog import ModelSettingsDialog
+        ModelSettingsDialog(self).exec()
 
     def add_files(self, paths, options=None):
         if self.busy():

@@ -62,7 +62,13 @@ def test_image_modes_keep_review_and_replies_and_readable_gallery(tmp_path, mode
         assert sheet._images[0].anchor._from.col == 4  # Screenshot follows source content.
         assert sheet["E2"].value == "查看截图（2张）"
         preview = path.parent / sheet["E2"].hyperlink.target
-        with Image.open(preview) as gallery:
+        page = preview.read_text(encoding="utf-8")
+        assert "查看截图 1" in page and "查看截图 2" in page
+        import re
+        from urllib.parse import unquote
+        targets = [preview.parent / unquote(name) for name in re.findall(r'href="([^"]+)"', page)]
+        assert [target.read_bytes() for target in targets] == [root.screenshots[0].data, reply.screenshots[0].data]
+        with Image.open(preview.parent / "截图_0001_预览.png") as gallery:
             assert gallery.size == (800, 820)  # linked image retains original detail
         originals = sorted(p for p in preview.parent.glob("*.png") if not p.name.endswith("_预览.png"))
         assert [p.read_bytes() for p in originals] == [root.screenshots[0].data, reply.screenshots[0].data]
@@ -248,6 +254,22 @@ def test_reused_text_lists_each_real_section_and_page():
     result = developer_pages(anchors, layout).splitlines()
     assert result == ['6.1 安装校验（第 5 页）', '8.2 升级校验（第 12 页）']
     assert '页码未获取' in developer_pages(anchors, [])
+
+
+def test_page_missing_is_not_repeated_and_unknown_location_is_not_given_a_page():
+    from commentextract.word_layout import developer_pages, add_pages
+    anchors = [dict(paragraph='第一段完整正文内容', title='第一章', approximate=False),
+               dict(paragraph='第二段完整正文内容', title='第二章', approximate=False)]
+    result = developer_pages(anchors, [])
+    assert result.count('页码未获取') == 1
+    assert add_pages('位置未确定 · 评审第 1 条', '无关的正文内容', []) == '位置未确定 · 评审第 1 条'
+
+
+def test_unique_exact_body_can_get_page_without_word_heading_style():
+    from commentextract.word_layout import developer_pages
+    anchors = [dict(paragraph='请检查接口连接并记录测试结果', title='5.1 接口检查', approximate=False)]
+    layout = [dict(text='请检查接口连接并记录测试结果', heading='', page=7)]
+    assert developer_pages(anchors, layout) == '5.1 接口检查（第 7 页）'
 
 
 def test_excel_location_column_is_compact_and_legacy_exports_are_skipped(tmp_path):

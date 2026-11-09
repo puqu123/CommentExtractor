@@ -8,7 +8,7 @@ from .support import Collector, exception_details
 SUPPORTED = {".doc", ".docx", ".xlsx", ".pptx"}
 
 
-def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True, progress=None, word_pages=False, ocr_backend="windows") -> Extraction:
+def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True, progress=None, word_pages=False, ocr_backend="windows", ai=False) -> Extraction:
     source = Path(path).resolve()
     result = Extraction(source)
     diagnostic = Collector(source, "developer_word" if developer else "standard")
@@ -36,7 +36,19 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
         if suffix == ".docx":
             if developer:
                 from .developer_word import read_developer_word
-                comments = read_developer_word(read_path, result.warnings, reviewer, reference, ocr, ocr_backend)
+                reference_read = reference
+                if reference and Path(reference).suffix.lower() == ".doc":
+                    from .word_layout import read_layout
+                    stage(20, "通过 Microsoft Word 转换原手册副本")
+                    try:
+                        _, converted_reference = read_layout(reference, convert=True)
+                        folder = Path(temporary.enter_context(tempfile.TemporaryDirectory(prefix="CommentExtractor-manual-")))
+                        reference_read = folder / "manual.docx"
+                        reference_read.write_bytes(converted_reference)
+                    except RuntimeError as exc:
+                        result.warnings.append("原手册未能读取：" + str(exc) + " 已保留评审意见及截图。")
+                        reference_read = None
+                comments = read_developer_word(read_path, result.warnings, reviewer, reference_read, ocr, ocr_backend, ai)
             else:
                 from .word import read_word
                 comments = read_word(read_path, result.warnings)
@@ -57,13 +69,24 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
             stage(90, "通过 Microsoft Word 读取排版页码")
             try:
                 if not layout or (developer and reference):
-                    layout, _ = read_layout(reference if developer and reference else source)
+                    if developer:
+                        layout, _ = read_layout(reference if reference else source)
+                        word_comments = []
+                    else:
+                        layout, _, word_comments = read_layout(source, include_comments=True)
+                else:
+                    word_comments = []
+                if not developer and word_comments:
+                    from .word_layout import apply_word_comment_positions
+                    ordinary_comments = [comment for issue in result.issues
+                                         for comment in [issue.root] + issue.replies]
+                    apply_word_comment_positions(ordinary_comments, word_comments)
                 for issue in result.issues:
                     if developer and issue.root.location_anchors:
                         issue.root.location = developer_pages(issue.root.location_anchors, layout)
                     elif not developer:
                         issue.root.location = add_pages(issue.root.location, issue.root.context, layout)
-            except RuntimeError as exc:
+            except (RuntimeError, OSError) as exc:
                 result.warnings.append(str(exc) + " 已保留提取内容及标题定位。")
                 if developer:
                     for issue in result.issues:

@@ -105,6 +105,16 @@ class DeveloperImportDialog(QDialog):
         self.addon_note.setObjectName("hint")
         self.addon_note.setToolTip(addon_message)
         settings.addWidget(self.addon_note)
+        from .model_settings import configured, load_settings
+        model_ready = configured(load_settings())
+        self.ai_check = QCheckBox("使用 AI 辅助定位")
+        self.ai_check.setChecked(model_ready)
+        self.ai_check.setEnabled(model_ready)
+        self.ai_check.setToolTip("发送截图、识别文字和部分候选原文到模型设置中的服务。" if model_ready else "请先在主界面的模型设置中配置服务。")
+        settings.addWidget(self.ai_check)
+        ai_note = QLabel("将截图和候选原文发送至已配置服务" if model_ready else "尚未配置模型，可在主界面设置")
+        ai_note.setObjectName("hint")
+        settings.addWidget(ai_note)
         layout.addStretch()
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.start_button = buttons.button(QDialogButtonBox.Ok)
@@ -117,7 +127,7 @@ class DeveloperImportDialog(QDialog):
         layout.addWidget(buttons)
 
     def select_reviews(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "选择开发编写的评审 Word（可多选）", "", "Word 文档 (*.docx)")
+        files, _ = QFileDialog.getOpenFileNames(self, "选择开发编写的评审 Word（可多选）", "", "Word 文档 (*.doc *.docx)")
         if files:
             self.review_files = files
             self.review_edit.setText("；".join(Path(path).name for path in files))
@@ -125,7 +135,7 @@ class DeveloperImportDialog(QDialog):
             self.start_button.setEnabled(True)
 
     def select_reference(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择被评审的原手册 Word", "", "Word 文档 (*.docx)")
+        path, _ = QFileDialog.getOpenFileName(self, "选择被评审的原手册 Word", "", "Word 文档 (*.doc *.docx)")
         if path:
             self.reference_edit.setText(path)
             self.reference_edit.setToolTip(path)
@@ -146,6 +156,8 @@ class DeveloperImportDialog(QDialog):
             options["ocr_backend"] = self.ocr_backend.currentData()
         if self.content_mode.currentData() != "both":
             options["content_mode"] = self.content_mode.currentData()
+        if self.ai_check.isChecked():
+            options["ai"] = True
         return options
 
 

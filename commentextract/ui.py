@@ -104,7 +104,10 @@ def build_ui(window, acceptance_delegate):
     name_block.addWidget(tagline)
     brand.addLayout(name_block)
     brand.addStretch()
-    offline = QLabel("● 本地处理 · 无需联网")
+    window.model_button = QPushButton("模型设置")
+    window.model_button.setToolTip("配置可选的公司内部模型服务。")
+    brand.addWidget(window.model_button)
+    offline = QLabel("● 本地处理 · AI 可选")
     offline.setObjectName("offline")
     brand.addWidget(offline)
     outer.addWidget(masthead)
@@ -278,7 +281,7 @@ def build_ui(window, acceptance_delegate):
     window.table.verticalHeader().setDefaultSectionSize(96)
     window.table.verticalHeader().setToolTip("拖动行号之间的边界调整行高。")
     window.table.setItemDelegateForColumn(ACCEPTANCE_COLUMN, acceptance_delegate(window.table))
-    for index, width in enumerate([72, 145, 115, 145, 110, 75, 245, 106, 105, 240]):
+    for index, width in enumerate([72, 145, 190, 145, 110, 75, 245, 106, 105, 240]):
         window.table.setColumnWidth(index, width)
     window.table.setColumnHidden(SCREENSHOT_COLUMN, True)  # Reserved export column; Office screenshots are not produced.
     window.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)

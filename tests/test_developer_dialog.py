@@ -34,7 +34,7 @@ def test_native_pickers_choose_roles_and_cancel_keeps_selection(application, tmp
 
     def choose_reviews(parent, title, directory, filters):
         calls.append(title)
-        assert parent is dialog and filters == "Word 文档 (*.docx)"
+        assert parent is dialog and filters == "Word 文档 (*.doc *.docx)"
         return (reviews if len(calls) == 1 else []), filters
     monkeypatch.setattr(QFileDialog, "getOpenFileNames", choose_reviews)
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda parent, title, directory, filters: (reference, filters))

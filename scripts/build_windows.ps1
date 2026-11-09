@@ -24,6 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Runtime license collection failed.' }
     --distpath $distRoot `
     --icon 'commentextract\assets\app.ico' --add-data 'commentextract/assets;commentextract/assets' `
     --exclude-module pymupdf --exclude-module fitz --exclude-module lxml `
+    --hidden-import commentextract.developer_word `
     --collect-all rapidocr_onnxruntime --collect-data onnxruntime --copy-metadata Pillow `
     --exclude-module onnxruntime.transformers --exclude-module onnxruntime.quantization --exclude-module onnxruntime.tools `
     --recursive-copy-metadata rapidocr-onnxruntime `
