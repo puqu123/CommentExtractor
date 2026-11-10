@@ -7,20 +7,20 @@ v0.2.6 另支持开发编写的“编号意见＋截图”Word 评审正文，�
 
 ## 下载使用
 
-下载 [v0.2.25 Windows x64 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.25/CommentExtractor-v0.2.25-win64.zip)，
+下载 [v0.2.26 Windows x64 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.26/CommentExtractor-v0.2.26-win64.zip)，
 完整解压后双击 `CommentExtractor.exe`，保留同目录的 `_internal` 文件夹。
 主程序文件名为 `CommentExtractor-v版本号-win64.zip`；带 `ocr-addon` 的是可选扩展，`-source.zip` 是源码包。其他版本见 [Releases](https://github.com/puqu123/CommentExtractor/releases)。
 
-v0.2.25 主程序与可选 OCR 扩展分开下载，每份严格小于 **100,000,000 字节（100 MB）**：
+v0.2.26 主程序与可选 OCR 扩展分开下载，每份严格小于 **100,000,000 字节（100 MB）**：
 
-- `CommentExtractor-v0.2.25-win64.zip`：主程序，可单独提取批注、使用 Windows OCR 和导出图片。
-- [v0.2.11 OCR 增强包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip)：可选的模型及运行库，兼容 v0.2.25。
+- `CommentExtractor-v0.2.26-win64.zip`：主程序，可单独提取批注、使用 Windows OCR 和导出图片。
+- [v0.2.11 OCR 增强包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip)：可选的模型及运行库，兼容 v0.2.26。
 
 可分两次传入公司电脑。先关闭程序，将两个 ZIP **解压到同一个目标文件夹**，合并其中的 `CommentExtractor` 文件夹，再启动程序。最终目录中应只有一层 `CommentExtractor`，其中有 EXE 和 `_internal`；扩展文件位于同一个 `_internal` 中。只需要基础功能时不用下载扩展包。导入窗口会显示扩展状态，缺失或不兼容时禁用增强 OCR 选项，Windows OCR 仍可用。包内附 `OCR_ADDON_README.txt`。
 
 已经安装兼容的 OCR 扩展时，升级只需关闭程序，将新主程序 ZIP 解压到原来的目标文件夹并替换同名文件，保留原有文件夹；旧扩展会自动复用，无需重复传输。v0.2.11 / v0.2.12 的扩展与当前版兼容。如果解压到一个全新的目录，需要另外把扩展放入该目录。
 
-GitHub 从 v0.2.13 直接更新到 v0.2.25；此前本地迭代的 v0.2.14–v0.2.24 不单独发布。保留 Windows 原生文件／文件夹选择窗口，格式支持范围与已知限制见下文。
+GitHub 发布了 v0.2.25 和 v0.2.26；此前本地迭代的 v0.2.14–v0.2.24 未单独发布。保留 Windows 原生文件／文件夹选择窗口，格式支持范围与已知限制见下文。
 
 ## 快速上手
 

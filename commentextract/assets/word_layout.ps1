@@ -14,10 +14,6 @@ try {
     $stage = 'CONVERT'
     if ($ConvertedFile) {
         $document.SaveAs2($ConvertedFile, 16)
-        # Conversion is sufficient for extracting comments. Page layout is an
-        # independent optional step and must not make a successful conversion fail.
-        [IO.File]::WriteAllText($OutputFile, '{"paragraphs":[],"comments":[]}', [Text.UTF8Encoding]::new($false))
-        return
     }
     $stage = 'LAYOUT'
     $document.Repaginate()

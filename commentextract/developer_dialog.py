@@ -10,12 +10,19 @@ from PySide6.QtWidgets import (
 class DeveloperImportDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        check_icon = (Path(__file__).with_name("assets") / "checkbox-check.svg").as_posix()
         self.setObjectName("developerImportDialog")
         self.setWindowTitle("开发评审导入 · 评审 Word 与原手册")
         self.resize(700, 520)
         self.setStyleSheet("""
             QDialog#developerImportDialog { background: #f3f7fa; }
             QLabel, QCheckBox { color: #193652; }
+            QCheckBox { spacing: 9px; }
+            QCheckBox::indicator { width: 20px; height: 20px; border: 2px solid #70889a;
+                border-radius: 4px; background: #ffffff; }
+            QCheckBox::indicator:hover { border-color: #168875; }
+            QCheckBox::indicator:checked { border-color: #168875; background: #168875; }
+            QCheckBox::indicator:checked { image: url("CHECK_ICON"); }
             QLabel#title { font-size: 20px; font-weight: 700; }
             QLabel#subtitle { color: #738b9d; font-size: 12px; }
             QLabel#section { font-size: 14px; font-weight: 600; }
@@ -29,7 +36,7 @@ class DeveloperImportDialog(QDialog):
             QPushButton:hover { background: #e8f4f3; }
             QPushButton#startImport { background: #168875; color: white; border: none; }
             QPushButton#startImport:disabled { background: #d6e2e5; color: #83969c; }
-        """)
+        """.replace("CHECK_ICON", check_icon))
         self.review_files = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(26, 22, 26, 20)

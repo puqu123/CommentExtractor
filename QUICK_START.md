@@ -1,6 +1,6 @@
 # CommentExtractor 快速入门
 
-适用于 Windows 用户。建议先下载 [CommentExtractor v0.2.25 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.25/CommentExtractor-v0.2.25-win64.zip)，完整解压后运行 `CommentExtractor.exe`。不要移动或删除同目录的 `_internal` 文件夹；无需安装 Python。
+适用于 Windows 用户。先从 [GitHub Releases](https://github.com/puqu123/CommentExtractor/releases) 下载当前发布的 Windows 主程序 ZIP，完整解压后运行 `CommentExtractor.exe`。不要移动或删除同目录的 `_internal` 文件夹；无需安装 Python。
 
 ## 1. 选择要提取的文件
 

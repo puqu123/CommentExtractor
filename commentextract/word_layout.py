@@ -9,16 +9,18 @@ import re
 from difflib import SequenceMatcher
 
 
-def read_layout(source, convert=False, include_comments=False):
+def read_layout(source, convert=False, include_comments=False, copy_input=True):
     script = Path(__file__).with_name("assets") / "word_layout.ps1"
     with tempfile.TemporaryDirectory(prefix="CommentExtractor-word-") as folder:
         folder = Path(folder)
         copy = folder / ("input" + Path(source).suffix)
-        shutil.copyfile(source, copy)
+        input_path = copy if copy_input else Path(source).resolve()
+        if copy_input:
+            shutil.copyfile(source, copy)
         result = folder / "layout.json"
         converted = folder / "converted.docx"
         environment = os.environ.copy()
-        environment.update(CE_WORD_INPUT=str(copy), CE_WORD_OUTPUT=str(result), CE_WORD_CONVERT=str(converted) if convert else "")
+        environment.update(CE_WORD_INPUT=str(input_path), CE_WORD_OUTPUT=str(result), CE_WORD_CONVERT=str(converted) if convert else "")
         environment["CE_WORD_COMMENTS"] = "1" if include_comments else "0"
         command = "& {\n" + script.read_text(encoding="utf-8") + "\n} -InputFile $env:CE_WORD_INPUT -OutputFile $env:CE_WORD_OUTPUT -ConvertedFile $env:CE_WORD_CONVERT -IncludeComments:($env:CE_WORD_COMMENTS -eq '1')"
         shell = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
@@ -31,8 +33,10 @@ def read_layout(source, convert=False, include_comments=False):
                 detail = "Word 操作超时，请检查是否有隐藏的 Word 提示窗口。"
             elif isinstance(exc, subprocess.CalledProcessError):
                 error = (exc.stderr or b"").decode("utf-8", errors="ignore") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+                open_message = ("Word 无法打开原始文件（只读）；请确认文件可在 Word 中打开。"
+                                if not copy_input else "Word 无法打开文件副本，请检查文件是否加密、受保护或损坏。")
                 for marker, message in [("WORD_START", "无法启动 Microsoft Word，请检查是否安装且可正常打开。"),
-                                        ("OPEN", "Word 无法打开文件副本，请检查文件是否加密、受保护或损坏。"),
+                                        ("OPEN", open_message),
                                         ("CONVERT", "Word 打开了文件，但另存为 .docx 未完成。"),
                                         ("LAYOUT", "Word 打开了文件，但读取排版页码未完成。")]:
                     if "CE_WORD_STAGE=" + marker in error:
@@ -83,7 +87,7 @@ def add_pages(location, context, paragraphs):
         same_heading = [p for p in candidates if p.get("heading") and normalized(p["heading"]) in normalized(line)]
         pages = sorted({page for p in (same_heading or candidates)
                         for page in range(int(p["page"]), int(p.get("end_page", p["page"])) + 1) if page > 0})
-        lines.append(line + ("（第 " + "、".join(map(str, pages)) + " 页）" if pages else ""))
+        lines.append(line + ("（第 " + "、".join(map(str, pages)) + " 页）" if pages else "（页码未获取）"))
     return "\n".join(lines)
 
 
@@ -96,18 +100,24 @@ def apply_word_comment_positions(comments, word_comments):
         body = normalized(comment.text)
         author = normalized(comment.author)
         scope = normalized(comment.context)
-        candidates = [item for item in available
-                      if normalized(item.get("text", "")) == body and
-                      (not author or not item.get("author") or normalized(item.get("author", "")) == author)]
-        scoped = [item for item in candidates if scope and normalized(item.get("scope", "")) == scope]
-        if scoped:
-            candidates = scoped
+        # The selected text is the strongest stable key across OOXML and Word.
+        # Comment bodies/authors can be rewritten by WPS or differ for replies.
+        candidates = [item for item in available if scope and normalized(item.get("scope", "")) == scope]
+        if len(candidates) > 1:
+            same_body = [item for item in candidates if body and normalized(item.get("text", "")) == body]
+            if same_body:
+                candidates = same_body
+        if len(candidates) > 1 and author:
+            same_author = [item for item in candidates if normalized(item.get("author", "")) == author]
+            if same_author:
+                candidates = same_author
         if len(candidates) != 1:
-            # A unique comment-text + anchor match still works if author fields
-            # differ between Office and WPS. Ambiguous duplicates use the old fallback.
             candidates = [item for item in available
-                          if body and normalized(item.get("text", "")) == body and scope and
-                          normalized(item.get("scope", "")) == scope]
+                          if body and normalized(item.get("text", "")) == body and
+                          (not author or not item.get("author") or normalized(item.get("author", "")) == author)]
+        if len(candidates) != 1 and body and scope:
+            candidates = [item for item in available
+                          if normalized(item.get("text", "")) == body and normalized(item.get("scope", "")) == scope]
         if len(candidates) != 1:
             continue
         item = candidates[0]

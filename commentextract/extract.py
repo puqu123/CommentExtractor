@@ -20,10 +20,19 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
         suffix = source.suffix.lower()
         read_path = source
         layout = []
+        word_comments = []
         if suffix == ".doc":
             from .word_layout import read_layout
             stage(10, "通过 Microsoft Word 转换旧格式副本")
-            layout, converted = read_layout(source, convert=True)
+            try:
+                layout, converted, word_comments = read_layout(
+                    source, convert=True, include_comments=not developer)
+            except RuntimeError:
+                # Some Word installations reject a temporary copy of legacy
+                # documents; retry opening the original read-only, still saving
+                # the converted output only inside the temporary workspace.
+                layout, converted, word_comments = read_layout(
+                    source, convert=True, include_comments=not developer, copy_input=False)
             folder = Path(temporary.enter_context(tempfile.TemporaryDirectory(prefix="CommentExtractor-doc-")))
             read_path = folder / "converted.docx"
             read_path.write_bytes(converted)
@@ -71,11 +80,10 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
                 if not layout or (developer and reference):
                     if developer:
                         layout, _ = read_layout(reference if reference else source)
-                        word_comments = []
                     else:
-                        layout, _, word_comments = read_layout(source, include_comments=True)
-                else:
-                    word_comments = []
+                        layout, _, read_comments = read_layout(source, include_comments=True)
+                        if read_comments:
+                            word_comments = read_comments
                 if not developer and word_comments:
                     from .word_layout import apply_word_comment_positions
                     ordinary_comments = [comment for issue in result.issues
