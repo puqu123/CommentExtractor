@@ -142,6 +142,7 @@ class Collector:
         self.failures = Counter()
         self.nodes = Counter()
         self.parts = Counter()
+        self.word_layout = {}
         self.error = {}
         self.token = _collector.set(self)
 
@@ -149,7 +150,8 @@ class Collector:
         try:
             return {"mode": self.mode, "error": self.error, "messages": warning_codes(result.warnings),
                     "packages": list(self.packages.values()), "parts": dict(self.parts), "nodes": dict(self.nodes),
-                    "read_failures": len(self.failed), "failed_parts": dict(self.failures)}
+                    "read_failures": len(self.failed), "failed_parts": dict(self.failures),
+                    "word_layout": dict(self.word_layout)}
         finally:
             _collector.reset(self.token)
 
@@ -236,6 +238,18 @@ def support_report(results, events=()):
         for code, count in sorted(warning_codes(result.warnings).items()):
             if code in MESSAGES:
                 lines.append(f"  {code}：{MESSAGES[code]}（{_count(count)} 项）")
+        word_layout = data.get("word_layout", {})
+        if isinstance(word_layout, dict) and word_layout:
+            if word_layout.get("status") == "ok":
+                lines.append("  Word 页码诊断：返回段落 " + str(_count(word_layout.get("layout_rows"))) +
+                             "；含页码 " + str(_count(word_layout.get("layout_pages"))) +
+                             "；截图锚点 " + str(_count(word_layout.get("anchors"))) +
+                             "；匹配段落 " + str(_count(word_layout.get("matched"))) +
+                             "；关联到页码 " + str(_count(word_layout.get("with_page"))))
+            elif word_layout.get("status") == "failed":
+                lines.append("  Word 页码诊断：读取失败")
+            elif word_layout.get("status") == "no_reference":
+                lines.append("  Word 页码诊断：未选择原手册")
         for number, package in enumerate(data.get("packages", []), 1):
             role = "源文件" if package.get("role") == "source" else "参考文件"
             lines.append(f"  包 {number}（{role}）：部件 {_count(package.get('entries'))}；XML {_count(package.get('xml_parts'))}")

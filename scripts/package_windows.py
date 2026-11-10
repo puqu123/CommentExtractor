@@ -1,4 +1,4 @@
-"""Create two independent ZIP downloads, each strictly below 100,000,000 bytes.
+"""Create the main ZIP and optionally a separate OCR add-on ZIP.
 
 Both archives share the CommentExtractor/ root. Extracting them into the same
 destination restores the original PyInstaller paths; no installer is needed.
@@ -38,7 +38,7 @@ def is_ocr_file(relative):
     return len(parts) >= 2 and parts[0] == "_internal" and parts[1].lower() in OCR_COMPONENTS
 
 
-def package_windows(bundle, dist=None, max_bytes=MAX_DOWNLOAD_BYTES):
+def package_windows(bundle, dist=None, max_bytes=MAX_DOWNLOAD_BYTES, include_addon=True):
     bundle = Path(bundle).resolve()
     if not (bundle / "CommentExtractor.exe").is_file():
         raise ValueError("Build the Windows application first.")
@@ -46,35 +46,39 @@ def package_windows(bundle, dist=None, max_bytes=MAX_DOWNLOAD_BYTES):
     dist.mkdir(parents=True, exist_ok=True)
     files = sorted(p for p in bundle.rglob("*") if p.is_file() and p.name != "ocr-addon.json")
     addon_files = [p for p in files if is_ocr_file(p.relative_to(bundle))]
-    if not any(p.suffix == ".onnx" for p in addon_files):
-        raise ValueError("The build is missing local OCR weights.")
-    required = {"rapidocr-onnxruntime": "1.4.4", "onnxruntime": "1.19.2", "numpy": "2.0.2",
-                "opencv-python": "5.0.0.93", "shapely": "2.0.7", "pyclipper": "1.3.0.post6"}
-    installed = {name: metadata.version(name) for name in required}
-    if installed != required or sys.version_info[:2] != (3, 9) or sys.maxsize < 2**32:
-        raise ValueError("OCR 运行库或 Python 环境已变化，请先更新兼容标识并验证扩展包。")
-    manifest = {"schema": ADDON_SCHEMA, "app_version": __version__, "engine": OCR_ENGINE,
-                "compatibility": OCR_COMPATIBILITY,
-                "files": {p.relative_to(bundle / "_internal").as_posix(): p.stat().st_size for p in addon_files}}
-    marker = bundle / "_internal" / "ocr-addon.json"
-    marker.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    addon_readme = bundle / "OCR_ADDON_README.txt"
-    addon_readme.write_text(README, encoding="utf-8-sig")
-    if addon_readme not in files:
-        files.append(addon_readme)
-    archives = [dist / f"CommentExtractor-v{__version__}-win64.zip",
-                dist / f"CommentExtractor-v{__version__}-ocr-addon-win64.zip"]
+    if include_addon:
+        if not any(p.suffix == ".onnx" for p in addon_files):
+            raise ValueError("The build is missing local OCR weights.")
+        required = {"rapidocr-onnxruntime": "1.4.4", "onnxruntime": "1.19.2", "numpy": "2.0.2",
+                    "opencv-python": "5.0.0.93", "shapely": "2.0.7", "pyclipper": "1.3.0.post6"}
+        installed = {name: metadata.version(name) for name in required}
+        if installed != required or sys.version_info[:2] != (3, 9) or sys.maxsize < 2**32:
+            raise ValueError("OCR 运行库或 Python 环境已变化，请先更新兼容标识并验证扩展包。")
+        manifest = {"schema": ADDON_SCHEMA, "app_version": __version__, "engine": OCR_ENGINE,
+                    "compatibility": OCR_COMPATIBILITY,
+                    "files": {p.relative_to(bundle / "_internal").as_posix(): p.stat().st_size for p in addon_files}}
+        marker = bundle / "_internal" / "ocr-addon.json"
+        marker.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        addon_readme = bundle / "OCR_ADDON_README.txt"
+        addon_readme.write_text(README, encoding="utf-8-sig")
+        if addon_readme not in files:
+            files.append(addon_readme)
+    archives = [dist / f"CommentExtractor-v{__version__}-win64.zip"]
+    if include_addon:
+        archives.append(dist / f"CommentExtractor-v{__version__}-ocr-addon-win64.zip")
     temporary = []
     try:
-        for addon, target in enumerate(archives):
+        for archive_index, target in enumerate(archives):
+            addon = include_addon and archive_index == 1
             with tempfile.NamedTemporaryFile(dir=dist, suffix=".zip", delete=False) as stream:
                 path = Path(stream.name)
             temporary.append(path)
             with ZipFile(path, "w", ZIP_DEFLATED, compresslevel=9) as archive:
                 for source in files:
-                    if not addon and source == addon_readme:
+                    if include_addon and not addon and source == addon_readme:
                         continue
-                    if is_ocr_file(source.relative_to(bundle)) != bool(addon):
+                    is_addon_component = is_ocr_file(source.relative_to(bundle))
+                    if (include_addon and is_addon_component != bool(addon)) or (not include_addon and is_addon_component):
                         continue
                     archive.write(source, source.relative_to(bundle.parent).as_posix())
                 if addon:
@@ -102,4 +106,7 @@ def package_windows(bundle, dist=None, max_bytes=MAX_DOWNLOAD_BYTES):
 
 
 if __name__ == "__main__":
-    package_windows(sys.argv[1] if len(sys.argv) > 1 else f"dist/v{__version__}/CommentExtractor")
+    main_only = "--main-only" in sys.argv[1:]
+    arguments = [value for value in sys.argv[1:] if value != "--main-only"]
+    bundle = arguments[0] if arguments else f"dist/v{__version__}/CommentExtractor"
+    package_windows(bundle, include_addon=not main_only)

@@ -1,26 +1,26 @@
 # CommentExtractor · 评审意见提取
 
 Windows 桌面工具，将 Word、Excel、PowerPoint 中的标准批注整理到 Excel；基础功能可离线使用。
-v0.2.6 另支持开发编写的“编号意见＋截图”Word 评审正文，可选择被评审原始 Word 辅助定位。
+v0.2.30 另支持开发编写的“编号意见＋截图”Word 评审正文，可选择被评审原始 Word 辅助定位章节；能匹配到 Word 分页时，会把页码附在最深一级章节标题后。
 源文件只读。可选配置内部模型辅助定位截图；只有启用时才会向配置的服务发送截图和候选原文。可分别导出每个勾选文件，例如 `设计说明.docx` → `设计说明_评审意见提取.xlsx`；也可把勾选文件汇总为一份 Excel。
 遇到同名结果自动增加序号，不覆盖已有输出。
 
 ## 下载使用
 
-下载 [v0.2.26 Windows x64 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.26/CommentExtractor-v0.2.26-win64.zip)，
+下载 [v0.2.30 Windows x64 主程序](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.30/CommentExtractor-v0.2.30-win64.zip)，
 完整解压后双击 `CommentExtractor.exe`，保留同目录的 `_internal` 文件夹。
 主程序文件名为 `CommentExtractor-v版本号-win64.zip`；带 `ocr-addon` 的是可选扩展，`-source.zip` 是源码包。其他版本见 [Releases](https://github.com/puqu123/CommentExtractor/releases)。
 
-v0.2.26 主程序与可选 OCR 扩展分开下载，每份严格小于 **100,000,000 字节（100 MB）**：
+v0.2.30 主程序与已发布的 OCR 扩展分开下载，每份严格小于 **100,000,000 字节（100 MB）**：
 
-- `CommentExtractor-v0.2.26-win64.zip`：主程序，可单独提取批注、使用 Windows OCR 和导出图片。
-- [v0.2.11 OCR 增强包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip)：可选的模型及运行库，兼容 v0.2.26。
+- `CommentExtractor-v0.2.30-win64.zip`：主程序，可单独提取批注、使用 Windows OCR 和导出图片。
+- [v0.2.11 OCR 增强包](https://github.com/puqu123/CommentExtractor/releases/download/v0.2.11/CommentExtractor-v0.2.11-ocr-addon-win64.zip)：可选的 OCR 模型及运行库，继续兼容 v0.2.30；本版本不重新打包或发布 OCR 扩展。
 
 可分两次传入公司电脑。先关闭程序，将两个 ZIP **解压到同一个目标文件夹**，合并其中的 `CommentExtractor` 文件夹，再启动程序。最终目录中应只有一层 `CommentExtractor`，其中有 EXE 和 `_internal`；扩展文件位于同一个 `_internal` 中。只需要基础功能时不用下载扩展包。导入窗口会显示扩展状态，缺失或不兼容时禁用增强 OCR 选项，Windows OCR 仍可用。包内附 `OCR_ADDON_README.txt`。
 
 已经安装兼容的 OCR 扩展时，升级只需关闭程序，将新主程序 ZIP 解压到原来的目标文件夹并替换同名文件，保留原有文件夹；旧扩展会自动复用，无需重复传输。v0.2.11 / v0.2.12 的扩展与当前版兼容。如果解压到一个全新的目录，需要另外把扩展放入该目录。
 
-GitHub 发布了 v0.2.25 和 v0.2.26；此前本地迭代的 v0.2.14–v0.2.24 未单独发布。保留 Windows 原生文件／文件夹选择窗口，格式支持范围与已知限制见下文。
+GitHub 发布了 v0.2.25、v0.2.26 和 v0.2.30；此前本地迭代的 v0.2.14–v0.2.24、v0.2.27–v0.2.29 未单独发布。保留 Windows 原生文件／文件夹选择窗口，格式支持范围与已知限制见下文。
 
 ## 快速上手
 
@@ -34,7 +34,7 @@ GitHub 发布了 v0.2.25 和 v0.2.26；此前本地迭代的 v0.2.14–v0.2.24 �
 
 完整操作见 [简明使用说明](USAGE.md)。免安装包内同时附有 `USAGE.txt`，可直接双击阅读。
 
-## 开发评审 Word 正文（v0.2.6）
+## 开发评审 Word 正文（v0.2.30）
 
 点击“评审 Word ＋ 原手册…”，分别选择开发评审 Word 和原手册，再按需填写评审人。支持 `.docx` 和通过 Microsoft Word 转换 `.doc` 副本。原手册可放在任意目录，只用于辅助定位。一次选择的文件共用原手册和评审人，不同手册／不同评审人请分批导入。普通“添加文件”仍只读取标准批注。
 
@@ -178,7 +178,7 @@ python -m venv .venv
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
 
-生成 `dist/v<版本号>/CommentExtractor/CommentExtractor.exe`，以及主程序 ZIP、可选 OCR 扩展 ZIP 和校验文件。打包脚本分别检查两份 ZIP 的实际字节数，任一达到 100,000,000 字节就停止；不会输出超限的新包。不同版本使用独立目录，避免覆盖正在运行的旧版。
+生成 `dist/v<版本号>/CommentExtractor/CommentExtractor.exe`、主程序 ZIP 和校验文件。默认只打主程序包，增强 OCR 继续复用已发布的 v0.2.11 扩展，不生成新的 OCR ZIP。主程序 ZIP 达到 100,000,000 字节就停止；不同版本使用独立目录，避免覆盖正在运行的旧版。
 使用时解压整个 ZIP，再运行 EXE；不能只拷贝 EXE。
 文件选择、导入文件夹和输出目录选择均调用 Windows 原生窗口，使用系统的导航栏、图标和交互，不附加应用主题或自定义图标提供器。
 未处理的界面异常会弹出提示，错误日志保存在 `%LOCALAPPDATA%\CommentExtractor\logs\app.log`。

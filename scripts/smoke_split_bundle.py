@@ -17,6 +17,8 @@ from openpyxl import load_workbook
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--ocr-addon", type=Path,
+                         help="Use a previously published compatible OCR add-on ZIP instead of this version's add-on.")
     parser.add_argument("--legacy-main", type=Path)
     parser.add_argument("--legacy-addon", type=Path)
     args = parser.parse_args()
@@ -24,7 +26,7 @@ def main():
         parser.error("Provide both --legacy-main and --legacy-addon.")
     project = Path(__file__).resolve().parents[1]
     base = project / "dist" / f"CommentExtractor-v{__version__}-win64.zip"
-    addon = project / "dist" / f"CommentExtractor-v{__version__}-ocr-addon-win64.zip"
+    addon = args.ocr_addon or project / "dist" / f"CommentExtractor-v{__version__}-ocr-addon-win64.zip"
     for archive in [base, addon]:
         assert archive.stat().st_size < MAX_DOWNLOAD_BYTES
     environment = dict(os.environ, HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9")

@@ -36,5 +36,5 @@ if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 Copy-Item -LiteralPath README.md,QUICK_START.md,USAGE.md,LICENSE,THIRD_PARTY_NOTICES.md,CHANGELOG.md,COMPATIBILITY.md,SUPPORT.md -Destination $bundleDir
 Get-Content -LiteralPath USAGE.md -Raw -Encoding UTF8 | Set-Content -LiteralPath (Join-Path $bundleDir 'USAGE.txt') -Encoding UTF8
 Copy-Item -LiteralPath licenses -Destination $bundleDir -Recurse -Force
-& $taskPython scripts\package_windows.py $bundleDir
-if ($LASTEXITCODE -ne 0) { throw 'Split package creation or 100 MB size check failed.' }
+& $taskPython scripts\package_windows.py $bundleDir --main-only
+if ($LASTEXITCODE -ne 0) { throw 'Main package creation or 100 MB size check failed.' }

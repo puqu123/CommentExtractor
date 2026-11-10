@@ -149,42 +149,83 @@ def apply_word_comment_positions(comments, word_comments):
     return comments
 
 
-def developer_pages(anchors, paragraphs):
+def developer_pages(anchors, paragraphs, stats=None):
     """Attach actual layout pages and the nearest usable heading to anchors."""
-    from .developer_word import normalized, anchor_title, CAPTION
+    from .developer_word import normalized, anchor_title, CAPTION, HEADING
+    if stats is not None:
+        stats.update(anchors=len(anchors), matched=0, with_page=0)
     locations = {}
     visible_pages = {}
     for anchor in anchors:
         paragraph = anchor["paragraph"]
         title = anchor["title"].split(" / ")[-1] if anchor["title"] else ""
         target = normalized(paragraph)
+        candidates = []
+        index_confirmed = False
+        layout_approximate = False
+        source_index = anchor.get("paragraph_index")
+        short_anchor = CAPTION.fullmatch(paragraph.strip()) or HEADING.fullmatch(paragraph.strip())
+        minimum_match_length = 8 if short_anchor else 32
+        if isinstance(source_index, int) and 0 <= source_index < len(paragraphs):
+            indexed = paragraphs[source_index]
+            indexed_text = normalized(indexed.get("text", ""))
+            if indexed_text and (indexed_text == target or indexed_text in target or target in indexed_text):
+                candidates = [indexed]
+                index_confirmed = True
+            elif len(target) >= minimum_match_length:
+                # The OOXML and Word COM text can differ around fields, cell
+                # marks, and line breaks. The source paragraph order is a
+                # strong hint, so retry in a small neighborhood before doing
+                # a broad, potentially ambiguous text match.
+                nearby = []
+                for position in range(max(0, source_index - 6), min(len(paragraphs), source_index + 7)):
+                    item = paragraphs[position]
+                    value = normalized(item.get("text", ""))
+                    if len(value) < 8 or min(len(target), len(value)) / max(len(target), len(value)) < 0.55:
+                        continue
+                    score = SequenceMatcher(None, target, value, autojunk=False).ratio()
+                    if score >= 0.72:
+                        nearby.append((score, -abs(position - source_index), item))
+                if nearby:
+                    best_score = max(item[0] for item in nearby)
+                    best = [item for item in nearby if item[0] >= best_score - 0.02]
+                    candidates = [max(best, key=lambda item: item[1])[2]]
+                    index_confirmed = True
+                    layout_approximate = True
+
         exact = [p for p in paragraphs if normalized(p.get("text", "")) == target]
-        candidates = exact
-        if not candidates and len(target) >= 32:
+        if not candidates:
+            candidates = exact
+        if not candidates and len(target) >= minimum_match_length:
             # Word's COM text can differ slightly from the OOXML paragraph
             # (field markers, cell endings, or line breaks). Allow only a
             # close, substantial match; never choose a weak nearest paragraph.
             scored = []
             for item in paragraphs:
                 value = normalized(item.get("text", ""))
-                if len(value) < 32:
+                if len(value) < minimum_match_length:
                     continue
                 shorter, longer = sorted((len(target), len(value)))
                 if shorter / longer < 0.65:
                     continue
                 ratio = SequenceMatcher(None, target, value, autojunk=False).ratio()
-                if ratio >= 0.84:
+                threshold = 0.82 if short_anchor else 0.84
+                if ratio >= threshold:
                     scored.append((ratio, item))
             if scored:
                 best = max(score for score, _ in scored)
-                candidates = [item for score, item in scored if score >= max(0.84, best - 0.015)]
+                threshold = 0.82 if short_anchor else 0.84
+                candidates = [item for score, item in scored if score >= max(threshold, best - 0.015)]
+                layout_approximate = True
         scoped = []
-        if title:
+        if title and not index_confirmed:
             scoped = [p for p in candidates if p.get("heading") and
                       normalized(title) in normalized(p["heading"])]
             # A unique exact paragraph can be located even when Word's heading
             # style is unavailable; ambiguous matches must not be guessed.
             candidates = scoped or (candidates if len(candidates) == 1 else [])
+        if stats is not None and candidates:
+            stats["matched"] += 1
         # Prefer the heading reported by Word itself. OOXML styles are often
         # missing on real manuals even when numbered section headings are clear.
         layout_headings = list(dict.fromkeys(p.get("heading", "") for p in candidates if p.get("heading")))
@@ -194,8 +235,9 @@ def developer_pages(anchors, paragraphs):
             labels = layout_headings
         else:
             labels = [anchor_title(paragraph, anchor["title"])]
-        if anchor.get("approximate"):
+        if anchor.get("approximate") or layout_approximate:
             labels = [label + "（待核对）" for label in labels]
+        anchor_pages = set()
         for label in labels:
             pages = locations.setdefault(label, set())
             if anchor.get("visible_page"):
@@ -203,7 +245,13 @@ def developer_pages(anchors, paragraphs):
             for p in candidates:
                 if len(labels) > 1 and p.get("heading") != label.removesuffix("（待核对）"):
                     continue
-                pages.update(range(int(p.get("page", 0)), int(p.get("end_page", p.get("page", 0))) + 1))
+                start_page = int(p.get("page", 0) or 0)
+                end_page = int(p.get("end_page", start_page) or start_page)
+                found_pages = {page for page in range(start_page, end_page + 1) if page > 0}
+                pages.update(found_pages)
+                anchor_pages.update(found_pages)
+        if stats is not None and anchor_pages:
+            stats["with_page"] += 1
     rendered = []
     for label, pages in locations.items():
         if label in visible_pages:

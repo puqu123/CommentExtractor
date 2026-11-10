@@ -3,6 +3,11 @@ import re
 
 from .ooxml import attr, elements, local, text
 
+NUMBERED_HEADING = re.compile(
+    r"^\s*(\d+(?:\.\d+){0,5})[、．.]?\s*\S[^。；;]{0,119}$"
+)
+CHINESE_HEADING = re.compile(r"^\s*第[一二三四五六七八九十百\d]+[章节]\s*\S[^。；;]{0,119}$")
+
 
 def excerpt(value, length=48):
     value = re.sub(r"\s+", " ", value).strip()
@@ -59,6 +64,10 @@ def paragraph_records(package, document, warnings=None):
                 level = int(attr(outline[0], "val"))
             elif style:
                 level = style_level(attr(style[0], "val"))
+        numbered = NUMBERED_HEADING.fullmatch(value)
+        chinese = CHINESE_HEADING.fullmatch(value)
+        if level is None and value and (numbered or chinese):
+            level = numbered.group(1).count(".") if numbered else 0
         if level is not None and level < 9 and value:
             headings = [(n, title) for n, title in headings if n < level]
             headings.append((level, value))

@@ -11,7 +11,7 @@ from .word_locations import excerpt, paragraph_records, word_location, is_toc_pa
 NUMBER = re.compile(r"^\s*(?:\d{1,3}[、．.](?!\d)|[（(]\d{1,3}[）)]|\d{1,3}[）)])\s*(.*)", re.S)
 PAGE = re.compile(r"(?:第\s*(\d(?:[ \t]*\d){0,4})\s*页|\b(?:page|p\.)[ \t]*[:：]?[ \t]*(\d(?:[ \t]*\d){0,4})(?!\d)|(?:页码|页号)[ \t]*[:：]?[ \t]*(\d(?:[ \t]*\d){0,4})(?!\d))", re.I)
 CAPTION = re.compile(r"^(?:图|表|figure|table)\s*\d+(?:[-.－]\d+)*(?:\s|[:：、]|[^\d\W]).*", re.I)
-HEADING = re.compile(r"^(?:第[一二三四五六七八九十百\d]+[章节]|\d+(?:\.\d+){1,5}\s*)[^。；;]{1,120}$")
+HEADING = re.compile(r"^(?:第[一二三四五六七八九十百\d]+[章节]|\d+(?:\.\d+){0,5}[、．.]?\s*)[^。；;]{1,120}$")
 
 
 def normalize_ocr_line(value):
@@ -23,6 +23,16 @@ def normalize_ocr_line(value):
 
 def normalized(value):
     return re.sub(r"[\W_]+", "", normalize_ocr_line(value).casefold())
+
+
+def unique_records(records):
+    result = []
+    seen = set()
+    for record in records:
+        if id(record) not in seen:
+            result.append(record)
+            seen.add(id(record))
+    return result
 
 
 def explicit_location(value):
@@ -46,10 +56,11 @@ def reference_matches(value, reference):
     needles = [normalized(line) for line in lines
                if len(normalized(line)) >= 8 and not PAGE.fullmatch(line.strip())]
     matches = []
-    for paragraph, title, level in reference:
+    for record in reference:
+        paragraph, title, level = record
         candidate = normalized(paragraph)
         if len(candidate) >= 8 and any(n in candidate or candidate in n for n in needles):
-            matches.append((paragraph, title, level))
+            matches.append(record)
     if matches:
         # A screenshot can contain both a section heading and its body. Keep
         # the body anchor so a heading's page does not masquerade as its page.
@@ -83,7 +94,24 @@ def reference_title_matches(value, reference):
                for candidate in candidates):
             exact.append(record)
     if exact:
-        return list(dict.fromkeys(exact)), False
+        exact = unique_records(exact)
+        # A screenshot often contains a whole page with several parent and
+        # child headings. Keep a figure/table caption when one is visible;
+        # otherwise keep only the deepest matched section level. This avoids
+        # turning every heading OCR can see into a separate location.
+        captions = [record for record in exact if CAPTION.fullmatch(record[0].strip())]
+        if captions:
+            return captions, False
+
+        def depth(record):
+            paragraph, _, level = record
+            if isinstance(level, int):
+                return level + 1
+            match = re.match(r"^(\d+(?:\.\d+)+)", normalize_ocr_line(paragraph))
+            return match.group(1).count(".") + 1 if match else 1
+
+        deepest = max(depth(record) for record in exact)
+        return [record for record in exact if depth(record) == deepest], False
     scored = []
     for record in titled:
         paragraph, title, _ = record
@@ -98,15 +126,16 @@ def reference_title_matches(value, reference):
     if not scored:
         return [], False
     best = max(score for score, _ in scored)
-    matches = list(dict.fromkeys(record for score, record in scored if score >= max(0.78, best - 0.025)))
+    matches = unique_records(record for score, record in scored
+                             if score >= max(0.78, best - 0.025))
     return matches, True
 
 
 def anchor_title(paragraph, title):
-    if CAPTION.fullmatch(paragraph.strip()):
-        return paragraph.strip()
     if title:
         return title.split(" / ")[-1]
+    if CAPTION.fullmatch(paragraph.strip()):
+        return paragraph.strip()
     return f'原文：“{excerpt(paragraph).rstrip("…")}”'
 
 
@@ -169,12 +198,23 @@ def _numbered_paragraphs(package, document):
 def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, ocr_backend="windows", ai=False):
     comments = []
     reference_records = []
+    reference_indices = {}
     if reference:
         try:
             with Package(reference, warnings) as original:
-                reference_records = [(value, title, level) for paragraph, value, title, level in
-                                     paragraph_records(original, original.xml("word/document.xml"), warnings)
-                                     if value and not is_toc_paragraph(paragraph)]
+                layout_index = 0
+                for paragraph, value, title, level in paragraph_records(
+                        original, original.xml("word/document.xml"), warnings):
+                    if not value:
+                        continue
+                    record = (value, title, level)
+                    if not is_toc_paragraph(paragraph):
+                        reference_records.append(record)
+                        # Word's layout reader skips empty paragraphs too, so
+                        # this index can map the OOXML match to its paginated
+                        # COM paragraph, including duplicate text occurrences.
+                        reference_indices[id(record)] = layout_index
+                    layout_index += 1
         except Exception as exc:
             warnings.append(f"原始文档无法读取：{type(exc).__name__}：{exc}；继续保留意见和截图。")
     with Package(path, warnings) as package:
@@ -277,16 +317,20 @@ def read_developer_word(path, warnings, reviewer="", reference=None, ocr=True, o
             # A screenshot can contain a printed page number alongside several
             # matched paragraphs. Preserve that evidence for every anchor in it.
             visible_page = visible_page if visible_page.startswith("第 ") else ""
-            for paragraph, title, _ in matches:
-                key = (paragraph, title, approximate)
+            for record in matches:
+                paragraph, title, _ = record
+                paragraph_index = reference_indices.get(id(record))
+                key = (paragraph, title, paragraph_index, approximate)
                 if key not in seen_anchors:
                     comment.location_anchors.append({"paragraph": paragraph, "title": title,
-                                                     "approximate": approximate, "visible_page": visible_page})
+                                                     "approximate": approximate, "visible_page": visible_page,
+                                                     "paragraph_index": paragraph_index})
                     matched_contexts.append(paragraph)
                     seen_anchors.add(key)
                 elif visible_page:
                     for anchor in comment.location_anchors:
-                        if (anchor["paragraph"], anchor["title"], anchor["approximate"]) == key and not anchor.get("visible_page"):
+                        if (anchor["paragraph"], anchor["title"], anchor.get("paragraph_index"),
+                                anchor["approximate"]) == key and not anchor.get("visible_page"):
                             anchor["visible_page"] = visible_page
         ocr_text = "\n".join(image.ocr_text for image in comment.screenshots if image.ocr_text)
         if comment.location_anchors:

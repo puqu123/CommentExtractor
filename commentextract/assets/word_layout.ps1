@@ -22,7 +22,7 @@ try {
     foreach ($paragraph in $document.Paragraphs) {
         $value = $paragraph.Range.Text.Trim([char]13, [char]7)
         if ($value) {
-            $numberedHeading = $value -match '^(?:\d+(?:\.\d+){1,5}\s*\S.{0,120}|第[一二三四五六七八九十百\d]+[章节].{0,120})$'
+            $numberedHeading = $value -match '^(?:\d+(?:\.\d+){0,5}[、．.]?\s*\S.{0,120}|第[一二三四五六七八九十百\d]+[章节].{0,120})$'
             if ([int]$paragraph.OutlineLevel -lt 10 -or $numberedHeading) {
                 $number = [string]$paragraph.Range.ListFormat.ListString
                 $heading = if ($number -and -not $value.StartsWith($number)) { "$number $value" } else { $value }
@@ -31,7 +31,11 @@ try {
             $range.Collapse(1)
             $endRange = $paragraph.Range.Duplicate
             if ($endRange.End -gt $endRange.Start) { $endRange.Start = $endRange.End - 1 }
-            $paragraphs.Add(@{text=$value; page=[int]$range.Information(1); end_page=[int]$endRange.Information(1); heading=$heading; start=[int]$range.Start})
+            $page = [int]$range.Information(1)
+            $endPage = [int]$endRange.Information(1)
+            if ($page -le 0) { $page = [int]$range.Information(3) }
+            if ($endPage -le 0) { $endPage = [int]$endRange.Information(3) }
+            $paragraphs.Add(@{text=$value; page=$page; end_page=$endPage; heading=$heading; start=[int]$range.Start})
         }
     }
     $commentRows = [Collections.Generic.List[object]]::new()
@@ -46,12 +50,16 @@ try {
                 $scopeStart = [int]$scope.Start
                 $headingRows = @($paragraphs | Where-Object { $_.start -le $scopeStart -and $_.heading })
                 $scopeHeading = if ($headingRows.Count) { [string]$headingRows[-1].heading } else { '' }
+                $startPage = [int]$startRange.Information(1)
+                $endPage = [int]$endRange.Information(1)
+                if ($startPage -le 0) { $startPage = [int]$startRange.Information(3) }
+                if ($endPage -le 0) { $endPage = [int]$endRange.Information(3) }
                 $commentRows.Add(@{
                     author=[string]$comment.Author
                     text=[string]$comment.Range.Text
                     scope=[string]$scope.Text
-                    start_page=[int]$startRange.Information(1)
-                    end_page=[int]$endRange.Information(1)
+                    start_page=$startPage
+                    end_page=$endPage
                     heading=$scopeHeading
                 })
             } catch {

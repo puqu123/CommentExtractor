@@ -21,6 +21,8 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
         read_path = source
         layout = []
         word_comments = []
+        reference_layout = []
+        reference_read = reference
         if suffix == ".doc":
             from .word_layout import read_layout
             stage(10, "通过 Microsoft Word 转换旧格式副本")
@@ -50,7 +52,7 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
                     from .word_layout import read_layout
                     stage(20, "通过 Microsoft Word 转换原手册副本")
                     try:
-                        _, converted_reference = read_layout(reference, convert=True)
+                        reference_layout, converted_reference = read_layout(reference, convert=True)
                         folder = Path(temporary.enter_context(tempfile.TemporaryDirectory(prefix="CommentExtractor-manual-")))
                         reference_read = folder / "manual.docx"
                         reference_read.write_bytes(converted_reference)
@@ -72,30 +74,52 @@ def extract_file(path, *, developer=False, reviewer="", reference=None, ocr=True
         for issue in result.issues:
             issue.source = source
         if word_pages and result.issues and developer and not reference:
+            diagnostic.word_layout = {"status": "no_reference"}
             result.warnings.append("未提供原手册，未读取排版页码；不会把评审文件的页码当成原手册页码。")
         elif word_pages and result.issues and suffix == ".docx":
             from .word_layout import read_layout, add_pages, developer_pages
             stage(90, "通过 Microsoft Word 读取排版页码")
             try:
-                if not layout or (developer and reference):
-                    if developer:
-                        layout, _ = read_layout(reference if reference else source)
-                    else:
-                        layout, _, read_comments = read_layout(source, include_comments=True)
-                        if read_comments:
-                            word_comments = read_comments
+                if developer:
+                    # Use the same manual copy whose OOXML paragraphs were
+                    # matched to screenshots. For legacy .doc manuals, the
+                    # converted DOCX layout was already captured in the same
+                    # Word session; reopening the original .doc can shift the
+                    # paragraph sequence and discard page matches.
+                    if not layout:
+                        layout = reference_layout
+                    if not layout:
+                        layout, _ = read_layout(reference_read if reference_read else source)
+                elif not layout:
+                    layout, _, read_comments = read_layout(source, include_comments=True)
+                    if read_comments:
+                        word_comments = read_comments
                 if not developer and word_comments:
                     from .word_layout import apply_word_comment_positions
                     ordinary_comments = [comment for issue in result.issues
                                          for comment in [issue.root] + issue.replies]
                     apply_word_comment_positions(ordinary_comments, word_comments)
+                if developer:
+                    page_stats = {"anchors": 0, "matched": 0, "with_page": 0}
+                    for issue in result.issues:
+                        if issue.root.location_anchors:
+                            current = {}
+                            issue.root.location = developer_pages(issue.root.location_anchors, layout, current)
+                            for key in page_stats:
+                                page_stats[key] += current.get(key, 0)
+                    diagnostic.word_layout = {
+                        "status": "ok",
+                        "layout_rows": len(layout),
+                        "layout_pages": sum(1 for item in layout if int(item.get("page", 0) or 0) > 0),
+                        **page_stats,
+                    }
                 for issue in result.issues:
-                    if developer and issue.root.location_anchors:
-                        issue.root.location = developer_pages(issue.root.location_anchors, layout)
-                    elif not developer:
+                    if not developer:
                         issue.root.location = add_pages(issue.root.location, issue.root.context, layout)
             except (RuntimeError, OSError) as exc:
                 result.warnings.append(str(exc) + " 已保留提取内容及标题定位。")
+                if developer:
+                    diagnostic.word_layout = {"status": "failed"}
                 if developer:
                     for issue in result.issues:
                         if issue.root.location_anchors:
